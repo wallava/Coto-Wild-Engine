@@ -66,6 +66,37 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 14:40 - [FASE 3 INTERACTIVA] R4 migrations cutscene + world (paralelo)
+
+**Plan inicial**: Claude src/cutscene/migrations.ts + tests; Codex en background src/engine/migrations.ts + tests.
+
+**Review loop con Codex**: 1 round.
+- 3 bloqueantes aceptados:
+  1. ensureAgentKfTypes SIN fallback 'move' — solo inferir con señal clara.
+  2. rooms→zones replicar filter `source==='manual'` del monolito.
+  3. assignEscenaRootIds validación todo-o-nada (recalcula desde scratch si parcial/inválido).
+- 5 sugerencias aceptadas: clone en loadAndMigrate*, dos APIs separadas, idempotencia deep-equal, raw original no se corrompe post-fail, rooms→zones solo campos válidos.
+
+**Tasks**:
+
+### CLAUDE-R4: src/cutscene/migrations.ts + tests
+- migrations.ts (211 LOC): migrateCutscene + loadAndMigrateCutscene + 5 steps (normalize, ensureScenes, migrateKfsToScenes, assignEscenaRootIds con validación de grafo, ensureAgentKfTypes sin fallback).
+- migrations.test.ts (17 tests): ensureScenes, migrateKfsToScenes, assignEscenaRootIds (recalcula si parcial), ensureAgentKfTypes (no setea sin señal), fx legacy, idempotencia, loadAndMigrate happy/clone/fail/no-corrupt.
+- Test fix mid-flight: `duration: -1` no servía como caso fail (normalize lo arregla a 30). Cambié a `kf con type:''` (sin señal para inferir).
+
+### CODEX-R4: src/engine/migrations.ts + tests (delegated)
+- Codex session: ace2e1cdefe8cba60 (background, completed).
+- migrations.ts (99 LOC): migrateWorld + loadAndMigrateWorld con migrateRoomsToZones (filter source==='manual') + ensureWorldDefaults.
+- migrations.test.ts (14 tests).
+- migrations-integration.test.ts (3 tests extra, out-of-scope aceptado).
+
+**Validación**: tsc ✅, smoke-test ✅, npm test **100/100** ✅ (16 inheritance + 29 cutscene/schema + 18 engine/schema + 17 cutscene/migrations + 14 engine/migrations + 3 engine/integration + 3 dist).
+**Status**: ✅ Done. Sin validación visual (sin wiring runtime — integración con loadFromStorage queda fuera del scope de Fase 3).
+
+**Fase 3 cerrada**: 4 rounds, 4 commits, 100 tests, 0 reverts, 0 quarantines.
+
+---
+
 ## 2026-04-27 14:35 - [FASE 3 INTERACTIVA] R3 validation world + tests engine schema (paralelo)
 
 **Plan inicial**: Claude agrega validateWorld a engine/persistence.ts (estricto + dim check). Codex tests engine/schema.ts.
