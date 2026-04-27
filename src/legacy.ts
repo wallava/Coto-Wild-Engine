@@ -169,6 +169,14 @@ import {
   resizeSceneLeft as sceneResizeLeft,
 } from './cutscene/scene-ops';
 import {
+  backupAndRemoveWorldAgents as lifecycleBackupAgents,
+  restoreWorldAgents as lifecycleRestoreAgents,
+  despawnAllAgentsFromScene as lifecycleDespawnAgents,
+  spawnCutsceneAgents as lifecycleSpawnAgents,
+  initCameraGizmoState as lifecycleInitGizmo,
+  clearCutsceneAnimCache as lifecycleClearAnimCache,
+} from './editor/lifecycle';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -4246,64 +4254,18 @@ import { formatRelTime } from './utils/format';
   function ceOpen() {
     if (ceState.open) return;
     ceState.open = true;
-    // ── Backup de agentes del mundo y removerlos del scene + del array ──
-    // Los agentes del mundo no deben aparecer durante cutscenes. Solo los
-    // que la cutscene tiene en su lista propia se renderizan.
-    ceState.worldAgentsBackup = agents.slice();
-    for (const a of agents) {
-      if (a.mesh) scene.remove(a.mesh);
-      if (a.statusMesh) scene.remove(a.statusMesh);
-    }
-    agents.length = 0;
-
-    // ── Spawn de los agentes propios de la cutscene ──
-    // Sus posiciones iniciales se infieren del primer kf de move en su track.
-    if (Array.isArray(ceState.cutscene.agents)) {
-      for (const csa of ceState.cutscene.agents) {
-        // Posición inicial: primer kf de move en su track, o (0,0) si no tiene
-        let cx = 0, cy = 0;
-        const tr = ceState.cutscene.tracks.find(t => t.agentId === csa.id);
-        if (tr) {
-          const moveKf = tr.keyframes.find(k => k.type === 'move');
-          if (moveKf) { cx = moveKf.cx; cy = moveKf.cy; }
-        }
-        const a = spawnAgent(cx, cy, {
-          id: csa.id, emoji: csa.emoji,
-          voiceIdx: csa.voiceIdx, needs: csa.needs,
-          csAgent: true,
-        });
-        if (a) a._csAgent = true;
-      }
-    }
+    // Backup agentes mundo + spawn agentes cutscene
+    ceState.worldAgentsBackup = lifecycleBackupAgents(agents, scene);
+    lifecycleSpawnAgents(ceState.cutscene.agents, ceState.cutscene.tracks, spawnAgent);
 
     if (!ceState.selectedAgentId && agents.length > 0) {
       ceState.selectedAgentId = agents[0].id;
     }
-    // Aplicar estado inicial de paredes/techo según playhead=0
     const initialWalls = ceComputeWallStateAt(0);
     ceState.currentHiddenIds = new Set(initialWalls.hiddenIds);
     ceApplyWallState(ceState.currentHiddenIds);
-    // ── Inicializar gizmo de cámara cinemática ──
     buildCameraGizmo();
-    const cam = ceState.cutscene.camera;
-    if (!cam.gizmoPosition || !cam.gizmoTarget) {
-      // Si la cutscene cargada no tiene gizmo state, usar el del primer kf nuevo
-      const firstNewKf = (cam.keyframes || []).find(k => k.position && k.target);
-      if (firstNewKf) {
-        cam.gizmoPosition = { ...firstNewKf.position };
-        cam.gizmoTarget = { ...firstNewKf.target };
-        cam.gizmoRoll = firstNewKf.roll || 0;
-        cam.gizmoLens = firstNewKf.lens || 50;
-        cam.gizmoProjection = firstNewKf.projection || 'perspective';
-      } else {
-        cam.gizmoPosition = { x: 200, y: 250, z: 300 };
-        cam.gizmoTarget = { x: 0, y: 30, z: 0 };
-        cam.gizmoRoll = 0;
-        cam.gizmoLens = 50;
-        cam.gizmoProjection = 'perspective';
-      }
-    }
-    if (cam.gizmoRoll === undefined) cam.gizmoRoll = 0;
+    lifecycleInitGizmo(ceState.cutscene.camera);
     updateCameraGizmo();
     setCameraGizmoVisible(ceTypeSelect.value === 'camera');
     if (typeof ceSyncLensUI === 'function') ceSyncLensUI();
@@ -4324,36 +4286,13 @@ import { formatRelTime } from './utils/format';
     if (!ceState.open) return;
     ceState.open = false;
     ceState.playing = false;
-    // Limpiar stack de undo/redo (no debería sobrevivir cierre de editor)
     ceState.undoStack.length = 0;
     ceState.redoStack.length = 0;
-    // Limpiar animaciones cinemáticas + restaurar props base
-    for (const a of agents) {
-      if (a._cutsceneAnim) {
-        ceResetAgentAnim(a);
-        a._cutsceneAnim = null;
-      }
-    }
-    // Limpiar todos los FX activos
+    lifecycleClearAnimCache(agents, ceResetAgentAnim);
     if (typeof ceClearAllFx === 'function') ceClearAllFx();
-
-    // ── Remover agentes propios de la cutscene ──
-    for (const a of agents) {
-      if (a.mesh) scene.remove(a.mesh);
-      if (a.statusMesh) scene.remove(a.statusMesh);
-    }
-    agents.length = 0;
-
-    // ── Restaurar agentes del mundo ──
-    if (ceState.worldAgentsBackup) {
-      for (const a of ceState.worldAgentsBackup) {
-        agents.push(a);
-        if (a.mesh) scene.add(a.mesh);
-        if (a.statusMesh) scene.add(a.statusMesh);
-        a.path = []; a.target = null;
-      }
-      ceState.worldAgentsBackup = null;
-    }
+    lifecycleDespawnAgents(agents, scene);
+    lifecycleRestoreAgents(agents, scene, ceState.worldAgentsBackup);
+    ceState.worldAgentsBackup = null;
 
     ceState.selectedKf = null;
     ceState.selectedKfIsCamera = false;

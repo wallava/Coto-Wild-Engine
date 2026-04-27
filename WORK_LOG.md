@@ -109,6 +109,15 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**TASK Wave I**: lifecycle helpers → `src/editor/lifecycle.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done (parcial — orchestrators ceOpen/ceClose siguen en legacy)
+- Archivos: `src/editor/lifecycle.ts` (nuevo, 145 LOC), `src/legacy.ts` (import + 6 wrappers)
+- Funciones extraídas: `backupAndRemoveWorldAgents`, `restoreWorldAgents`, `despawnAllAgentsFromScene`, `spawnCutsceneAgents`, `initCameraGizmoState`, `clearCutsceneAnimCache`.
+- ceOpen reducido de ~75 LOC a ~15 LOC (orchestrator). ceClose reducido de ~55 LOC a ~30 LOC.
+- Diferido (justificado): `ceUpdateToolbarFields` (~80 LOC con DOM refs cerradas), `cePreviewMode/POV controls` (orchestrators), POV/scrub helpers. Coordinación cruzada con FX/walls/render/toolbar/POV/fade/undo todavía atada a closure refs en legacy. Extraerlos requiere refactor más amplio que no entra en presupuesto.
+- Validación: tsc ✅, smoke-test ✅
+
 **TASK Wave H**: drag/snap operations → `src/cutscene/scene-ops.ts`
 - Tipo: CLAUDE
 - Status: ✅ Done
