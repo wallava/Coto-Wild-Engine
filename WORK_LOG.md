@@ -66,6 +66,34 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 20:30 - [FASE 5 INTERACTIVA] R0.5 smoke spike API real (PASA)
+
+**Plan inicial**: scripts/llm-smoke.mjs standalone con 3 tests (streaming, 401, prompt caching).
+
+**Tasks**:
+
+### CLAUDE-R0.5: scripts/llm-smoke.mjs
+- 210 LOC. Standalone Node ESM. Lee API key de env o --key arg.
+- Test 1 streaming: pasa. Primer token en 896ms. "¡Hola!" devuelto.
+- Test 2 401: pasa (cualquier key inválida da 401).
+- Test 3 prompt caching: PASA. Call 1 cacheCreation=15601 (ephemeral_5m). Call 2 cacheRead=15601 (90% off).
+
+**Confirmado por API real**:
+- `usage.cache_creation` desglose `ephemeral_5m_input_tokens` + `ephemeral_1h_input_tokens` (Usage type del contrato lo cubre).
+- Streaming SSE format estándar.
+- Latencia ~900ms primer token.
+
+**Browser CORS**:
+- fetch directo SIN header `anthropic-dangerous-direct-browser-access` → bloqueado por CORS.
+- fetch CON header `anthropic-dangerous-direct-browser-access: true` → 200 OK.
+- **Decisión R1**: AnthropicClient usa fetch directo + header dangerous-direct-browser-access. NO SDK, NO proxy.
+
+**Workspace Anthropic**: creado por Pablo (nombre 'CWE'), spend limit $20/mes, API key generada en él.
+
+**Status R0.5**: ✅ Done. Avanza a R1.
+
+---
+
 ## 2026-04-27 20:00 - [FASE 5 INTERACTIVA] R0 contrato LLM types + smoke spike script
 
 **Plan inicial**: Round 0 escribe contrato esqueleto (sin impl) en src/llm/types.ts + models.ts. Round 0.5 spike de API real con script standalone.
