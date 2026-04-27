@@ -35,11 +35,37 @@ async function main() {
     pageErrors.push(err.message);
   });
 
+  let phase = 'init';
   try {
+    phase = 'pageload';
     await page.goto(`http://localhost:${VITE_PORT}`, { waitUntil: 'networkidle', timeout: 10000 });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
+
+    // Abrir editor de cutscenes (boot del editor + render inicial)
+    phase = 'open-editor';
+    await page.click('#btn-cutscene');
+    await page.waitForSelector('#cutscene-editor.visible, #cutscene-editor[style*="display: flex"], #cutscene-editor[style*="display:flex"], #cutscene-editor', { timeout: 5000 });
+    await page.waitForTimeout(2000);
+
+    // Verificar que el timeline esté presente con su estructura básica
+    phase = 'verify-timeline';
+    const timelineExists = await page.evaluate(() => {
+      const tl = document.getElementById('ce-timeline');
+      const ruler = document.getElementById('ce-ruler');
+      const tracks = document.getElementById('ce-tracks');
+      const playhead = document.getElementById('ce-playhead');
+      return !!(tl && ruler && tracks && playhead);
+    });
+    if (!timelineExists) {
+      pageErrors.push('Editor timeline structure missing (#ce-timeline / #ce-ruler / #ce-tracks / #ce-playhead)');
+    }
+
+    // Cerrar editor (lifecycle round-trip)
+    phase = 'close-editor';
+    await page.click('#ce-close');
+    await page.waitForTimeout(1000);
   } catch (err) {
-    pageErrors.push(`Page load failed: ${err.message}`);
+    pageErrors.push(`Phase "${phase}" failed: ${err.message}`);
   }
 
   await browser.close();
