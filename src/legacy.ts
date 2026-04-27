@@ -158,6 +158,17 @@ import {
   computeLassoSelection as editorComputeLassoSelection,
 } from './editor/multi-sel';
 import {
+  SCENE_SNAP_THRESHOLD as sceneSnapThreshold,
+  SCENE_SNAP_BREAKAWAY as sceneSnapBreakaway,
+  applySnapToStart as sceneApplySnapToStart,
+  applySnapToEnd as sceneApplySnapToEnd,
+  applySnapToStartResize as sceneApplySnapToStartResize,
+  resolveSceneOverlaps as sceneResolveOverlaps,
+  moveSceneByDt as sceneMoveByDt,
+  resizeSceneRight as sceneResizeRight,
+  resizeSceneLeft as sceneResizeLeft,
+} from './cutscene/scene-ops';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -3680,110 +3691,34 @@ import { formatRelTime } from './utils/format';
   // esa zona, NO frena — invade al vecino y lo acorta (igual que DaVinci).
   // Los kfs nunca se borran: si el vecino se acorta, sus kfs quedan vinculados
   // a él por sceneId (no se ven mientras estén fuera del rango actual del plano).
-  const SCENE_SNAP_THRESHOLD = 0.4;   // 0.4s = zona magnética
-  const SCENE_SNAP_BREAKAWAY = 0.15;  // si target está MÁS lejos que esto del snap, rompe
+  const SCENE_SNAP_THRESHOLD = sceneSnapThreshold;
+  const SCENE_SNAP_BREAKAWAY = sceneSnapBreakaway;
 
-  // Aplica snap si el target está cerca de un borde.
   function ceApplySnapToStart(targetStart, duration, excludeId) {
-    const others = (ceState.cutscene.scenes || []).filter(s => s.id !== excludeId);
-    let tStart = targetStart;
-    const tEnd = tStart + duration;
-    // Si el target ya invade algún vecino (push activo), NO aplicar snap.
-    // El snap solo es para juntar planos antes de tocarlos. Una vez tocando,
-    // dejamos que el push sea fluido (1-a-1 con el cursor).
-    const isPushing = others.some(sc =>
-      tEnd > sc.tStart + 0.001 && tStart < sc.tEnd - 0.001);
-    if (ceState.snapEnabled && !isPushing) {
-      let bestSnap = null;
-      let bestDist = SCENE_SNAP_THRESHOLD;
-      for (const sc of others) {
-        const dEnd = Math.abs(tEnd - sc.tStart);
-        if (dEnd < bestDist) { bestSnap = { kind: 'end', target: sc.tStart }; bestDist = dEnd; }
-        const dStart = Math.abs(tStart - sc.tEnd);
-        if (dStart < bestDist) { bestSnap = { kind: 'start', target: sc.tEnd }; bestDist = dStart; }
-      }
-      if (Math.abs(tStart) < bestDist) bestSnap = { kind: 'start', target: 0 };
-      if (bestSnap) {
-        if (bestSnap.kind === 'start') tStart = bestSnap.target;
-        else tStart = bestSnap.target - duration;
-      }
-    }
-    tStart = Math.max(0, Math.min(ceState.cutscene.duration - duration, tStart));
-    return tStart;
+    return sceneApplySnapToStart(
+      ceState.cutscene.scenes || [],
+      !!ceState.snapEnabled,
+      ceState.cutscene.duration,
+      targetStart, duration, excludeId,
+    );
   }
   function ceApplySnapToEnd(tStart, targetEnd, excludeId) {
-    const others = (ceState.cutscene.scenes || []).filter(s => s.id !== excludeId);
-    let tEnd = targetEnd;
-    // Si target ya invade algún vecino, no snap (push fluido)
-    const isPushing = others.some(sc =>
-      tEnd > sc.tStart + 0.001 && tStart < sc.tEnd - 0.001);
-    if (ceState.snapEnabled && !isPushing) {
-      let best = null;
-      let bestDist = SCENE_SNAP_THRESHOLD;
-      for (const sc of others) {
-        const d = Math.abs(tEnd - sc.tStart);
-        if (d < bestDist) { best = sc.tStart; bestDist = d; }
-      }
-      if (best !== null) tEnd = best;
-    }
-    return Math.max(tStart + 0.2, Math.min(ceState.cutscene.duration, tEnd));
+    return sceneApplySnapToEnd(
+      ceState.cutscene.scenes || [],
+      !!ceState.snapEnabled,
+      ceState.cutscene.duration,
+      tStart, targetEnd, excludeId,
+    );
   }
   function ceApplySnapToStartResize(targetStart, tEnd, excludeId) {
-    const others = (ceState.cutscene.scenes || []).filter(s => s.id !== excludeId);
-    let tStart = targetStart;
-    const isPushing = others.some(sc =>
-      tEnd > sc.tStart + 0.001 && tStart < sc.tEnd - 0.001);
-    if (ceState.snapEnabled && !isPushing) {
-      let best = null;
-      let bestDist = SCENE_SNAP_THRESHOLD;
-      for (const sc of others) {
-        const d = Math.abs(tStart - sc.tEnd);
-        if (d < bestDist) { best = sc.tEnd; bestDist = d; }
-      }
-      if (best !== null) tStart = best;
-    }
-    return Math.max(0, Math.min(tEnd - 0.2, tStart));
+    return sceneApplySnapToStartResize(
+      ceState.cutscene.scenes || [],
+      !!ceState.snapEnabled,
+      targetStart, tEnd, excludeId,
+    );
   }
-
-  // Resuelve solapes después de un move/resize: acorta vecinos invadidos.
-  // Si un vecino es completamente cubierto, se elimina del modelo Y sus kfs
-  // se reasignan al plano invasor (para que no queden huérfanos).
-  // NUNCA borra keyframes, solo los reasigna.
   function ceResolveSceneOverlaps(movedSceneId) {
-    const all = ceState.cutscene.scenes || [];
-    const moved = all.find(s => s.id === movedSceneId);
-    if (!moved) return;
-    for (let i = all.length - 1; i >= 0; i--) {
-      const sc = all[i];
-      if (sc.id === movedSceneId) continue;
-      const overlap = Math.min(moved.tEnd, sc.tEnd) - Math.max(moved.tStart, sc.tStart);
-      if (overlap <= 0.001) continue;
-      const scDur = sc.tEnd - sc.tStart;
-      // Si moved cubre completamente a sc: eliminar sc Y reasignar sus kfs
-      // al plano invasor (los kfs no se pierden, solo cambian de dueño).
-      if (overlap >= scDur - 0.05) {
-        ceReassignKfsByOwnerToTarget(sc.id, moved.id);
-        all.splice(i, 1);
-        continue;
-      }
-      // Acortar sc del lado invadido — sus kfs siguen siendo de sc (algunos
-      // pueden quedar dormidos si t cae fuera del nuevo rango).
-      if (moved.tStart > sc.tStart && moved.tStart < sc.tEnd) {
-        sc.tEnd = moved.tStart;
-      } else if (moved.tEnd > sc.tStart && moved.tEnd < sc.tEnd) {
-        sc.tStart = moved.tEnd;
-      } else if (moved.tStart >= sc.tStart && moved.tEnd <= sc.tEnd) {
-        const dStart = moved.tStart - sc.tStart;
-        const dEnd = sc.tEnd - moved.tEnd;
-        if (dStart <= dEnd) sc.tStart = moved.tEnd;
-        else sc.tEnd = moved.tStart;
-      }
-      if (sc.tEnd - sc.tStart < 0.15) {
-        // Demasiado chico → absorber kfs y eliminar
-        ceReassignKfsByOwnerToTarget(sc.id, moved.id);
-        all.splice(i, 1);
-      }
-    }
+    sceneResolveOverlaps(ceState.cutscene, movedSceneId);
   }
 
   // Reasigna todos los kfs cuyo sceneId === oldId al newId.
@@ -3793,53 +3728,22 @@ import { formatRelTime } from './utils/format';
 
   // Mueve un plano: aplica snap suave al borde de vecinos. Si el usuario
   // sigue empujando más allá del snap, el vecino se acorta (push). Los kfs
-  // nunca se borran — quedan vinculados al vecino por sceneId.
+  // nunca se borran — quedan vinculados al vecino por sceneId. NOTA: NO
+  // resolvemos solapes acá. Durante drag los planos pueden solaparse
+  // visualmente. El resolve definitivo se hace en mouseup.
   function ceMoveScene(scene, dt) {
-    const realSc = (ceState.cutscene.scenes || []).find(s => s.id === scene.id);
-    if (!realSc) return;
-    const dur = realSc.tEnd - realSc.tStart;
-    const target = realSc.tStart + dt;
-    const newStart = ceApplySnapToStart(target, dur, realSc.id);
-    const realDt = newStart - realSc.tStart;
-    if (Math.abs(realDt) < 0.001) return;
-    ceShiftKeyframesBySceneId(realSc.id, realDt);
-    realSc.tStart = newStart;
-    realSc.tEnd = newStart + dur;
-    // NOTA: NO llamamos ceResolveSceneOverlaps aquí. Durante drag los planos
-    // pueden solaparse visualmente. El resolve definitivo se hace en mouseup.
-    ceRenderTracks();
+    const r = sceneMoveByDt(ceState.cutscene, scene.id, dt, !!ceState.snapEnabled);
+    if (r.changed) ceRenderTracks();
   }
 
   function ceResizeSceneRight(scene, dt, mode) {
-    const realSc = (ceState.cutscene.scenes || []).find(s => s.id === scene.id);
-    if (!realSc) return;
-    const oldEnd = realSc.tEnd;
-    const target = oldEnd + dt;
-    const newEnd = ceApplySnapToEnd(realSc.tStart, target, realSc.id);
-    const realDt = newEnd - oldEnd;
-    if (Math.abs(realDt) < 0.001) return;
-    if (mode === 'warp') {
-      ceWarpKeyframesBySceneId(realSc.id, realSc.tStart, oldEnd, realSc.tStart, newEnd);
-    }
-    realSc.tEnd = newEnd;
-    ceRenderTracks();
-    ceRenderRuler();
+    const r = sceneResizeRight(ceState.cutscene, scene.id, dt, mode, !!ceState.snapEnabled);
+    if (r.changed) { ceRenderTracks(); ceRenderRuler(); }
   }
 
   function ceResizeSceneLeft(scene, dt, mode) {
-    const realSc = (ceState.cutscene.scenes || []).find(s => s.id === scene.id);
-    if (!realSc) return;
-    const oldStart = realSc.tStart;
-    const target = oldStart + dt;
-    const newStart = ceApplySnapToStartResize(target, realSc.tEnd, realSc.id);
-    const realDt = newStart - oldStart;
-    if (Math.abs(realDt) < 0.001) return;
-    if (mode === 'warp') {
-      ceWarpKeyframesBySceneId(realSc.id, oldStart, realSc.tEnd, newStart, realSc.tEnd);
-    }
-    realSc.tStart = newStart;
-    ceRenderTracks();
-    ceRenderRuler();
+    const r = sceneResizeLeft(ceState.cutscene, scene.id, dt, mode, !!ceState.snapEnabled);
+    if (r.changed) { ceRenderTracks(); ceRenderRuler(); }
   }
 
   // Shift kfs en rango [tA, tB) por dt. Toca camera, walls, fx, tracks de agentes.

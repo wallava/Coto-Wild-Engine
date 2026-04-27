@@ -109,6 +109,15 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**TASK Wave H**: drag/snap operations → `src/cutscene/scene-ops.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `src/cutscene/scene-ops.ts` (nuevo, 240 LOC), `src/legacy.ts` (import + 7 wrappers reducidos)
+- Funciones extraídas: `SCENE_SNAP_THRESHOLD`, `SCENE_SNAP_BREAKAWAY`, `applySnapToStart`, `applySnapToEnd`, `applySnapToStartResize`, `resolveSceneOverlaps`, `moveSceneByDt`, `resizeSceneRight`, `resizeSceneLeft`. Tipos `MoveSceneResult` + `ResizeMode`.
+- Wrappers en legacy reducidos a una línea cada uno (move/resizeRight/resizeLeft). Render se queda en legacy via `if (r.changed) ceRenderTracks/Ruler()`.
+- Importa `Cutscene`/`Scene` desde `model.ts` para que tsc valide alineación con strict types.
+- Validación: tsc ✅, smoke-test ✅
+
 **TASK Wave F**: FX system → `src/cutscene/fx.ts`
 - Tipo: CLAUDE
 - Status: ✅ Done
