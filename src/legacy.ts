@@ -88,6 +88,16 @@ import {
   type TimelineViewport,
 } from './editor/timeline';
 import {
+  isCutsceneAgent as toolbarIsCutsceneAgent,
+  syncSnapBtn as toolbarSyncSnapBtn,
+  syncLensUI as toolbarSyncLensUI,
+  updatePlayButton as toolbarUpdatePlayButton,
+  updateDeleteBtn as toolbarUpdateDeleteBtn,
+  updateTimeDisplay as toolbarUpdateTimeDisplay,
+  refreshAgentSelect as toolbarRefreshAgentSelect,
+  refreshParentSelect as toolbarRefreshParentSelect,
+} from './editor/toolbar';
+import {
   ensureSceneConsistency as cutsceneEnsureSceneConsistency,
   computeSceneView as cutsceneComputeSceneView,
   sceneAt as cutsceneSceneAt,
@@ -1653,21 +1663,7 @@ import { formatRelTime } from './utils/format';
 
   // Sincroniza la UI del lens (preset select + slider + valor) con el state actual
   function ceSyncLensUI() {
-    const cam = ceState.cutscene.camera;
-    const lens = Math.round(cam.gizmoLens || 50);
-    const preset = document.getElementById('ce-cam-lens-preset');
-    const slider = document.getElementById('ce-cam-lens-slider');
-    const valueLabel = document.getElementById('ce-cam-lens-value');
-    if (!preset || !slider || !valueLabel) return;
-    slider.value = lens;
-    valueLabel.textContent = lens + 'mm';
-    // Si el lens coincide con un preset, marcar; si no, "custom"
-    const presetVals = ['24', '35', '50', '85', '135'];
-    if (presetVals.includes(String(lens))) {
-      preset.value = String(lens);
-    } else {
-      preset.value = 'custom';
-    }
+    toolbarSyncLensUI(ceState.cutscene.camera.gizmoLens || 50);
   }
 
   // clearScene ahora vive en src/engine/scene-graph.ts. Wrapper local para no
@@ -3153,18 +3149,7 @@ import { formatRelTime } from './utils/format';
   }
 
   function ceRefreshParentSelect() {
-    const cur = ceState.cutscene.camera.parentAgentId || '';
-    ceParentSelect.innerHTML = '';
-    const optNone = document.createElement('option');
-    optNone.value = ''; optNone.textContent = '— sin parent —';
-    ceParentSelect.appendChild(optNone);
-    for (const agent of agents) {
-      const opt = document.createElement('option');
-      opt.value = agent.id;
-      opt.textContent = `${agent.emoji || ''} ${String(agent.id).slice(-3)}`;
-      ceParentSelect.appendChild(opt);
-    }
-    ceParentSelect.value = cur;
+    toolbarRefreshParentSelect(ceParentSelect, agents, ceState.cutscene.camera.parentAgentId);
   }
   ceParentSelect.addEventListener('change', () => {
     ceState.cutscene.camera.parentAgentId = ceParentSelect.value || null;
@@ -3279,17 +3264,10 @@ import { formatRelTime } from './utils/format';
   const ceFormatTime = timelineFormatTime;
 
   function ceUpdateTimeDisplay() {
-    ceTimeCurrent.textContent = ceFormatTime(ceState.playhead);
-    ceTimeTotal.textContent = ceFormatTime(ceState.cutscene.duration);
+    toolbarUpdateTimeDisplay(ceTimeCurrent, ceTimeTotal, ceState.playhead, ceState.cutscene.duration);
   }
   function ceUpdatePlayButton() {
-    if (ceState.playing) {
-      cePlayBtn.textContent = '⏸';
-      cePlayBtn.classList.add('playing');
-    } else {
-      cePlayBtn.textContent = '▶';
-      cePlayBtn.classList.remove('playing');
-    }
+    toolbarUpdatePlayButton(cePlayBtn, ceState.playing);
   }
 
   function ceTrackAreaWidth() {
@@ -4440,25 +4418,10 @@ import { formatRelTime } from './utils/format';
   }
 
   function ceRefreshAgentSelect() {
-    ceAgentSelect.innerHTML = '';
-    if (agents.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = '— sin agentes —';
-      ceAgentSelect.appendChild(opt);
-      return;
-    }
-    for (const agent of agents) {
-      const opt = document.createElement('option');
-      opt.value = agent.id;
-      opt.textContent = `${agent.emoji || ''} ${String(agent.id).slice(-3)}`;
-      if (agent.id === ceState.selectedAgentId) opt.selected = true;
-      ceAgentSelect.appendChild(opt);
-    }
+    toolbarRefreshAgentSelect(ceAgentSelect, agents, ceState.selectedAgentId);
   }
 
-  // Helper: verifica si un agent fue spawneado por la cutscene actual (vs ser
-  // del mundo). El flag _csAgent se setea al crearlos en ceOpen / ceAddAgent.
-  function ceIsCutsceneAgent(a) { return !!a._csAgent; }
+  const ceIsCutsceneAgent = toolbarIsCutsceneAgent;
 
   // ── Paredes/techo/muebles ocultables ──────────────────────────────────
   // ID format:
@@ -4934,13 +4897,7 @@ import { formatRelTime } from './utils/format';
   }
 
   function ceUpdateDeleteBtn() {
-    if (ceState.selectedKf) {
-      ceDeleteBtn.style.display = '';
-      ceDeleteBtn.disabled = false;
-    } else {
-      ceDeleteBtn.style.display = 'none';
-      ceDeleteBtn.disabled = true;
-    }
+    toolbarUpdateDeleteBtn(ceDeleteBtn, !!ceState.selectedKf);
   }
 
   function ceSetPlayhead(t) {
@@ -5431,19 +5388,8 @@ import { formatRelTime } from './utils/format';
       document.body.classList.remove('cs-scissors-mode');
     }
   });
-  // Toggle del snap entre planos
   function ceSyncSnapBtn() {
-    const btn = document.getElementById('ce-snap-toggle');
-    if (!btn) return;
-    if (ceState.snapEnabled) {
-      btn.style.background = 'rgba(120, 170, 255, 0.55)';
-      btn.style.color = '#fff';
-      btn.style.borderColor = 'rgba(120, 170, 255, 0.85)';
-    } else {
-      btn.style.background = 'rgba(120, 170, 255, 0.06)';
-      btn.style.color = 'rgba(180, 210, 255, 0.55)';
-      btn.style.borderColor = 'rgba(120, 170, 255, 0.20)';
-    }
+    toolbarSyncSnapBtn(!!ceState.snapEnabled);
   }
   document.getElementById('ce-snap-toggle').addEventListener('click', () => {
     if (!ceState.open) return;

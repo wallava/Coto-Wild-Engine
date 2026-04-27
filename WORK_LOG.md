@@ -83,6 +83,14 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 - Validación: `npx tsc --noEmit` ✅
 - Notas: agregué helper `ceTimelineViewport()` que arma `TimelineViewport` desde `ceState`. Reemplazo limpio de las 9 funciones por wrappers thin. `ceFormatTime` quedó como alias directo a `timelineFormatTime` (idéntico).
 
+**TASK Wave C**: extraer toolbar a `src/editor/toolbar.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done (parcial — `ceUpdateToolbarFields` deferida a Wave I)
+- Archivos: `src/editor/toolbar.ts` (nuevo), `src/legacy.ts` (8 wrappers)
+- Funciones extraídas: `isCutsceneAgent`, `syncSnapBtn`, `syncLensUI`, `updatePlayButton`, `updateDeleteBtn`, `updateTimeDisplay`, `refreshAgentSelect`, `refreshParentSelect`.
+- Diferida: `ceUpdateToolbarFields` (~80 LOC con DOM-coupling cruzado vía `selectedKf` + `activeElement` + presets — esperar Wave I lifecycle para extraer junto a refs DOM).
+- Validación: `npx tsc --noEmit` ✅
+
 ---
 
 ## 2026-04-27 08:15 - HANDOFF nocturno: bypass mode no estaba activo, requiere restart Claude
