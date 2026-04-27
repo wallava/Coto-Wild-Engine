@@ -164,7 +164,6 @@ import {
   ITEM_SIZES,
   getItemSize,
 } from './game/agent-kits';
-import { createAgentTexture } from './engine/agent-texture';
 import {
   ROOM_KINDS,
   ROOM_REQUIREMENTS,
@@ -227,6 +226,13 @@ import {
   setAgentMeshOpacity,
 } from './engine/agent-helpers';
 import { clearAgentStatus, updateAgentStatusPositions } from './engine/agent-status';
+import {
+  initAgentChassis,
+  spawnAgent as spawnAgentImpl,
+  createAgentMesh,
+  setAgentFacing as setAgentFacingImpl,
+  syncAgentMesh as syncAgentMeshImpl,
+} from './engine/agent-chassis';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -1723,118 +1729,17 @@ import { formatRelTime } from './utils/format';
 
   // VOICE_PRESETS / hashStringToInt / pickVoiceIdx ahora viven en src/voices.ts.
 
+  // spawnAgent + createAgentMesh + setAgentFacing + syncAgentMesh ahora viven
+  // en src/engine/agent-chassis.ts. Wrappers acá inyectan el array `agents`
+  // (singleton legacy hasta extraer) y actualizan el contador en el sidebar.
   function spawnAgent(cx, cy, opts) {
-    opts = opts || {};
-    const kit = opts.emoji || AGENT_KITS[Math.floor(Math.random() * AGENT_KITS.length)];
-    const agentId = opts.id || uid();
-    const agent = {
-      id: agentId,
-      cx, cy,
-      px: cx + 0.5, py: cy + 0.5,
-      path: [],
-      target: null,
-      speed: 2.2,                  // celdas por segundo
-      waiting: 0,
-      emoji: kit,
-      spriteW: 100,
-      spriteH: 80,
-      hopTime: Math.random() * Math.PI * 2,
-      hopFreq: 5.5,
-      hopHeight: 7,
-      hopping: false,
-      mesh: null,
-      heldItem: opts.heldItem || null,
-      facing: 'right',
-      texRight: null,
-      texLeft: null,
-      voiceIdx: (opts.voiceIdx !== undefined) ? opts.voiceIdx : pickVoiceIdx(agentId),
-      // ── Necesidades (gameplay) ──
-      needs: opts.needs ? {
-        focus: opts.needs.focus ?? 80,
-        hunger: opts.needs.hunger ?? 80,
-        social: opts.needs.social ?? 80,
-        bathroom: opts.needs.bathroom ?? 80,
-      } : {
-        focus:    70 + Math.random() * 25,
-        hunger:   70 + Math.random() * 25,
-        social:   70 + Math.random() * 25,
-        bathroom: 70 + Math.random() * 25,
-      },
-      // Estado "working": null o { startTime, duration, prop, zoneKind }
-      working: null,
-      // Marca: agente creado por la cutscene (no debe persistirse al mundo).
-      _csAgent: !!opts.csAgent,
-      // Estado "talking": true mientras un panel de diálogo lo tiene activo.
-      talking: false,
-      // Status overlay (emoji que aparece arriba cuando need crítica)
-      statusEmoji: null,
-      statusMesh: null,
-    };
-    agents.push(agent);
-    createAgentMesh(agent);
+    const agent = spawnAgentImpl(agents, cx, cy, opts);
     document.getElementById('agent-count').textContent =
       `${agents.length} agente${agents.length === 1 ? '' : 's'}`;
-    eventBus.emit('agentSpawned', { agent });
     return agent;
   }
-
-  function createAgentMesh(agent) {
-    // Pre-generar ambas direcciones; intercambio sin re-crear textura.
-    agent.texRight = createAgentTexture(agent.emoji[0], agent.emoji[1], false);
-    agent.texLeft  = createAgentTexture(agent.emoji[0], agent.emoji[1], true);
-    const mat = new THREE.SpriteMaterial({
-      map: agent.facing === 'left' ? agent.texLeft : agent.texRight,
-      depthTest: true,
-      transparent: true,
-      alphaTest: 0.1,    // descarta pixels con alpha bajo: elimina halo del sprite contra vidrio
-      depthWrite: false, // no escribir al z-buffer así el vidrio compone bien detrás
-    });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(agent.spriteW, agent.spriteH, 1);
-    sprite.renderOrder = 2;   // encima del vidrio (renderOrder=1) para que no corte el personaje
-    sprite.userData.isAgent = true;
-    agent.mesh = sprite;
-    scene.add(sprite);
-    syncAgentMesh(agent);
-  }
-
-  // Cambia la dirección del agente (y la textura visible) si es distinta a la
-  // actual. Llamado desde updateAgents y desde el drag.
-  function setAgentFacing(agent, facing) {
-    if (!agent || !agent.mesh) return;
-    if (facing !== 'left' && facing !== 'right') return;
-    if (agent.facing === facing) return;
-    agent.facing = facing;
-    const tex = facing === 'left' ? agent.texLeft : agent.texRight;
-    if (tex && agent.mesh.material) {
-      agent.mesh.material.map = tex;
-      agent.mesh.material.needsUpdate = true;
-    }
-    // Si está siendo arrastrado, también actualizar el ghost
-    if (draggedAgent === agent && agentDragGhost && agentDragGhost.material) {
-      agentDragGhost.material.map = tex;
-      agentDragGhost.material.needsUpdate = true;
-    }
-  }
-
-  function syncAgentMesh(agent) {
-    // Centro del sprite a media altura para que la "base" (parte inferior) toque
-    // el piso. El hop sube el sprite agregando offset positivo.
-    const baseY = agent.spriteH / 2;
-    const yOff = agent.hopping ? Math.abs(Math.sin(agent.hopTime)) * agent.hopHeight : 0;
-    agent.mesh.position.set(
-      agent.px * CELL - centerX,
-      baseY + yOff,
-      agent.py * CELL - centerZ
-    );
-    if (selectedAgent === agent && agentHighlight) {
-      agentHighlight.position.set(
-        agent.px * CELL - centerX,
-        0.3,
-        agent.py * CELL - centerZ
-      );
-    }
-  }
+  const setAgentFacing = setAgentFacingImpl;
+  const syncAgentMesh = syncAgentMeshImpl;
 
   // ── Selección de agente (click-to-move) ──
   let selectedAgent = null;
@@ -1891,6 +1796,15 @@ import { formatRelTime } from './utils/format';
   let agentDragTargetCx = 0;
   let agentDragTargetCy = 0;
   let agentDragValid = false;
+  // Wire del chassis: el módulo lee draggedAgent/ghost/selected/highlight
+  // via getters para mantener sync de facing (ghost) y posición (highlight).
+  initAgentChassis({
+    getDraggedAgent: () => draggedAgent,
+    getAgentDragGhost: () => agentDragGhost,
+    getSelectedAgent: () => selectedAgent,
+    getAgentHighlight: () => agentHighlight,
+    pickRandomKit: () => AGENT_KITS[Math.floor(Math.random() * AGENT_KITS.length)],
+  });
   // Spring physics — coords de mundo (no snap)
   let agentDragCursorX = 0;     // target del cursor (donde está el mouse)
   let agentDragCursorZ = 0;
