@@ -72,6 +72,7 @@ import {
   isAllWindowCorner,
   getCandidateWallSlots,
   getAdjacentCell,
+  getWallPropBounds,
 } from './engine/wall-queries';
 import { mkBox, makeGlassMesh, setStrokesGetter } from './engine/three-primitives';
 import { DOOR_TEMPLATES, doorTpl, makeDoorPanelMesh } from './engine/door-panels';
@@ -80,6 +81,7 @@ import {
   addToScene,
   registerDoorPivot,
   clearScene as engineClearScene,
+  setPropMeshOpacity,
 } from './engine/scene-graph';
 import {
   buildSolidWallN,
@@ -178,6 +180,11 @@ import {
   floodFillFloor as engineFloodFillFloor,
   floodFillRoomWalls as engineFloodFillRoomWalls,
 } from './engine/paint';
+import {
+  clearPaintPreview,
+  addPaintPreviewTile as engineAddPaintPreviewTile,
+  addPaintPreviewWallFace as engineAddPaintPreviewWallFace,
+} from './engine/paint-preview';
 import { formatRelTime } from './utils/format';
 // engine/door-anim revertido — door animation in legacy hasta resolver bug
 
@@ -507,7 +514,7 @@ import { formatRelTime } from './utils/format';
       })),
       props: props.map(p => {
         const out = {
-          id: p.id,                           // persistido para mantener referencias estables
+          id: p.id,
           cx: p.cx, cy: p.cy, h: p.h,
           top: p.top, right: p.right, left: p.left,
           category: p.category || 'floor',
@@ -517,7 +524,6 @@ import { formatRelTime } from './utils/format';
         if (p.side !== undefined) out.side = p.side;
         if (p.zOffset !== undefined) out.zOffset = p.zOffset;
         if (p.stackable) out.stackable = true;
-        // kind y name son críticos para el sistema de requisitos de zonas.
         if (p.kind !== undefined) out.kind = p.kind;
         if (p.name !== undefined) out.name = p.name;
         return out;
@@ -1191,66 +1197,20 @@ import { formatRelTime } from './utils/format';
   // Cuando el usuario hover sobre piso o pared en modo Pintar (sin click),
   // se muestra un overlay del color paintColor sobre lo que se pintaría.
   // Si tiene shift, el preview cubre toda la habitación / pared continua.
-  const paintPreviewMeshes = [];
+  // paintPreviewMeshes ahora vive en src/engine/paint-preview.ts.
   let paintPreviewKey = null;
   let paintShiftHeld = false;
   let lastMouseEvent = null;
 
-  function clearPaintPreview() {
-    for (const m of paintPreviewMeshes) {
-      scene.remove(m);
-      if (m.geometry) m.geometry.dispose();
-      if (m.material) m.material.dispose();
-    }
-    paintPreviewMeshes.length = 0;
-    paintPreviewKey = null;
-  }
-
-  function previewColorHex() {
-    // Si el modo es "limpiar" (paintColor=null), preview en blanco con cruz visual
-    return paintColor !== null ? paintColor : 0xffffff;
-  }
-
+  // Render del preview ahora en src/engine/paint-preview.ts. Wrappers locales
+  // pasan el color actual + wallH calculada (deps a wallMode/theta siguen
+  // en legacy). Mantienen paintPreviewKey para evitar rebuilds innecesarios.
   function addPaintPreviewTile(cx, cy) {
-    const geo = new THREE.PlaneGeometry(CELL - 2, CELL - 2);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: previewColorHex(),
-      transparent: true, opacity: 0.55, depthTest: false,
-      side: THREE.DoubleSide,
-    });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set((cx + 0.5) * CELL - centerX, 0.6, (cy + 0.5) * CELL - centerZ);
-    m.renderOrder = 100;
-    scene.add(m);
-    paintPreviewMeshes.push(m);
+    engineAddPaintPreviewTile(cx, cy, paintColor);
   }
-
   function addPaintPreviewWallFace(type, cx, cy, side) {
     const wallH = (type === 'wallN') ? wallHeightForN(cy) : wallHeightForW(cx);
-    const w = CELL - 4;
-    const h = Math.max(wallH - 4, 4);
-    const geo = new THREE.PlaneGeometry(w, h);
-    const mat = new THREE.MeshBasicMaterial({
-      color: previewColorHex(),
-      transparent: true, opacity: 0.55, depthTest: false,
-      side: THREE.DoubleSide,
-    });
-    const m = new THREE.Mesh(geo, mat);
-    let posX, posY = h / 2, posZ;
-    if (type === 'wallN') {
-      posX = (cx + 0.5) * CELL;
-      posZ = cy * CELL + (side === 'S' ? halfT + 0.6 : -halfT - 0.6);
-    } else {
-      posZ = (cy + 0.5) * CELL;
-      posX = cx * CELL + (side === 'E' ? halfT + 0.6 : -halfT - 0.6);
-      // Plano default está en X-Y (normal +Z). Para wallW necesitamos Y-Z (normal X).
-      geo.rotateY(Math.PI / 2);
-    }
-    m.position.set(posX - centerX, posY, posZ - centerZ);
-    m.renderOrder = 100;
-    scene.add(m);
-    paintPreviewMeshes.push(m);
+    engineAddPaintPreviewWallFace(type, cx, cy, side, wallH, paintColor);
   }
 
   // Helper: altura de pared en cy/cx. Calcula el wallHeight tipo cutaway igual
@@ -1925,58 +1885,9 @@ import { formatRelTime } from './utils/format';
     return true;
   }
 
-  // Calcula el bounding box (xmin..xmax, ymin..ymax, zmin..zmax) de un wall
-  // prop según su side+cx+cy+zOffset+h. Devuelve null si side es inválido,
-  // así el caller puede skipearlo sin generar BoxGeometry con NaN.
-  function getWallPropBounds(p) {
-    let xmin, xmax, ymin, ymax;
-    if (p.side === 'S') {
-      xmin = p.cx * CELL + WALL_PROP_PAD;
-      xmax = (p.cx + 1) * CELL - WALL_PROP_PAD;
-      ymin = p.cy * CELL + halfT;
-      ymax = ymin + WALL_PROP_DEPTH;
-    } else if (p.side === 'N') {
-      xmin = p.cx * CELL + WALL_PROP_PAD;
-      xmax = (p.cx + 1) * CELL - WALL_PROP_PAD;
-      ymax = p.cy * CELL - halfT;
-      ymin = ymax - WALL_PROP_DEPTH;
-    } else if (p.side === 'E') {
-      xmin = p.cx * CELL + halfT;
-      xmax = xmin + WALL_PROP_DEPTH;
-      ymin = p.cy * CELL + WALL_PROP_PAD;
-      ymax = (p.cy + 1) * CELL - WALL_PROP_PAD;
-    } else if (p.side === 'W') {
-      xmax = p.cx * CELL - halfT;
-      xmin = xmax - WALL_PROP_DEPTH;
-      ymin = p.cy * CELL + WALL_PROP_PAD;
-      ymax = (p.cy + 1) * CELL - WALL_PROP_PAD;
-    } else {
-      return null;
-    }
-    const zOffset = (typeof p.zOffset === 'number' && !isNaN(p.zOffset)) ? p.zOffset : 50;
-    const ph = (typeof p.h === 'number' && !isNaN(p.h)) ? p.h : 24;
-    if (!isFinite(xmin) || !isFinite(xmax) || !isFinite(ymin) || !isFinite(ymax)) return null;
-    return { xmin, xmax, ymin, ymax, zmin: zOffset, zmax: zOffset + ph };
-  }
+  // getWallPropBounds ahora en src/engine/wall-queries.ts.
 
-  // Cambia la opacidad del mesh de un mueble (las 6 caras + edges).
-  // Útil para "agarrar" el mueble: queda translúcido en su posición original
-  // mientras el ghost flota siguiendo al cursor (estilo Sims).
-  function setPropMeshOpacity(prop, opacity) {
-    for (const obj of sceneObjects) {
-      if (obj.userData && obj.userData.prop === prop) {
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) {
-          m.transparent = opacity < 1;
-          m.opacity = opacity;
-          m.depthWrite = opacity >= 1;
-          m.needsUpdate = true;
-        }
-        return obj;
-      }
-    }
-    return null;
-  }
+  // setPropMeshOpacity ahora en src/engine/scene-graph.ts.
 
   // ── Drag ghost (preview semi-transparente que sigue al cursor) ──
   function startDrag(prop) {

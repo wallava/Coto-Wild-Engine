@@ -10,7 +10,14 @@
 //                      físico EXCEPTO si tiene puerta-prop encima (los agentes
 //                      pasan por puertas).
 
-import { GRID_W, GRID_H } from './state';
+import {
+  GRID_W,
+  GRID_H,
+  CELL,
+  halfT,
+  WALL_PROP_PAD,
+  WALL_PROP_DEPTH,
+} from './state';
 import { worldGrid, props, type PropAny } from './world';
 
 // ── Wall existence ─────────────────────────────────────────────────
@@ -148,6 +155,50 @@ export type WallSlot = {
   cx: number;
   cy: number;
 };
+
+// Calcula el bounding box (xmin..xmax, ymin..ymax, zmin..zmax) de un wall
+// prop (cuadro) según su side+cx+cy+zOffset+h. Devuelve null si side es
+// inválido, así el caller puede skipearlo sin generar BoxGeometry con NaN.
+export type WallPropBounds = {
+  xmin: number; xmax: number;
+  ymin: number; ymax: number;
+  zmin: number; zmax: number;
+};
+
+export function getWallPropBounds(p: PropAny): WallPropBounds | null {
+  const cx = p['cx'] as number;
+  const cy = p['cy'] as number;
+  let xmin: number, xmax: number, ymin: number, ymax: number;
+  if (p['side'] === 'S') {
+    xmin = cx * CELL + WALL_PROP_PAD;
+    xmax = (cx + 1) * CELL - WALL_PROP_PAD;
+    ymin = cy * CELL + halfT;
+    ymax = ymin + WALL_PROP_DEPTH;
+  } else if (p['side'] === 'N') {
+    xmin = cx * CELL + WALL_PROP_PAD;
+    xmax = (cx + 1) * CELL - WALL_PROP_PAD;
+    ymax = cy * CELL - halfT;
+    ymin = ymax - WALL_PROP_DEPTH;
+  } else if (p['side'] === 'E') {
+    xmin = cx * CELL + halfT;
+    xmax = xmin + WALL_PROP_DEPTH;
+    ymin = cy * CELL + WALL_PROP_PAD;
+    ymax = (cy + 1) * CELL - WALL_PROP_PAD;
+  } else if (p['side'] === 'W') {
+    xmax = cx * CELL - halfT;
+    xmin = xmax - WALL_PROP_DEPTH;
+    ymin = cy * CELL + WALL_PROP_PAD;
+    ymax = (cy + 1) * CELL - WALL_PROP_PAD;
+  } else {
+    return null;
+  }
+  const zOffsetRaw = p['zOffset'];
+  const zOffset = typeof zOffsetRaw === 'number' && !isNaN(zOffsetRaw) ? zOffsetRaw : 50;
+  const phRaw = p['h'];
+  const ph = typeof phRaw === 'number' && !isNaN(phRaw) ? phRaw : 24;
+  if (!isFinite(xmin) || !isFinite(xmax) || !isFinite(ymin) || !isFinite(ymax)) return null;
+  return { xmin, xmax, ymin, ymax, zmin: zOffset, zmax: zOffset + ph };
+}
 
 export function getCandidateWallSlots(): WallSlot[] {
   const c: WallSlot[] = [];
