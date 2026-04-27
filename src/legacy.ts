@@ -59,9 +59,22 @@ import {
   setCameraGizmoVisible,
 } from './engine/camera-gizmo';
 import {
-  loadAllSavedCutscenes,
-  writeAllSavedCutscenes,
+  serializeCutscene,
 } from './cutscene/persistence';
+import {
+  pushSnapshot,
+  popUndo,
+  popRedo,
+  clearStacks,
+} from './editor/undo';
+import {
+  applyCutsceneDataWithCallbacks,
+  deleteCutsceneByName as editorDeleteCutsceneByName,
+  listSavedCutscenes as editorListSavedCutscenes,
+  loadCutsceneByName as editorLoadCutsceneByName,
+  newEmptyCutscene as editorNewEmptyCutscene,
+  saveCurrentCutscene as editorSaveCurrentCutscene,
+} from './editor/persistence';
 import {
   ensureSceneConsistency as cutsceneEnsureSceneConsistency,
   computeSceneView as cutsceneComputeSceneView,
@@ -5509,12 +5522,8 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
   //  PERSISTENCIA DE CUTSCENES (localStorage)
   // ══════════════════════════════════════════════════════════════
-  // CUTSCENES_STORAGE_KEY + load/write helpers ahora en src/cutscene/persistence.ts.
-  // Aliases locales para no cambiar callsites:
-  const ceLoadAllSaved = loadAllSavedCutscenes;
-  const ceWriteAllSaved = writeAllSavedCutscenes;
   function ceRefreshSavedSelect() {
-    const saved = ceLoadAllSaved();
+    const saved = editorListSavedCutscenes();
     const names = Object.keys(saved).sort();
     const cur = ceState.cutsceneName || '';
     ceSavedSelect.innerHTML = '';
@@ -5532,38 +5541,16 @@ import { formatRelTime } from './utils/format';
     ceDeleteCsBtn.style.opacity = cur ? '1' : '0.4';
   }
   function ceSerializeCutscene() {
-    return JSON.parse(JSON.stringify({
-      duration: ceState.cutscene.duration,
-      tracks: ceState.cutscene.tracks.map(tr => ({
-        agentId: tr.agentId,
-        keyframes: tr.keyframes,
-      })),
-      camera: {
-        keyframes: ceState.cutscene.camera.keyframes,
-        parentAgentId: ceState.cutscene.camera.parentAgentId,
-      },
-      fx: {
-        entities: (ceState.cutscene.fx && ceState.cutscene.fx.entities) ? ceState.cutscene.fx.entities : [],
-      },
-      walls: {
-        keyframes: (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) ? ceState.cutscene.walls.keyframes : [],
-      },
-      agents: ceState.cutscene.agents || [],
-      sceneNames: ceState.cutscene.sceneNames || {},
-      scenes: ceState.cutscene.scenes || [],
-    }));
+    return serializeCutscene(ceState.cutscene);
   }
 
   // ── Undo/redo: snapshots de la cutscene completa ──
   // ceSnapshot() ANTES de cada acción discreta (mover/resize plano, tijera,
   // borrar/agregar kf, etc). Cmd+Z restaura el último snapshot.
   // Stack limitado a 50.
-  const CE_UNDO_MAX = 50;
   function ceSnapshot() {
     try {
-      const snap = ceSerializeCutscene();
-      ceState.undoStack.push(JSON.stringify(snap));
-      if (ceState.undoStack.length > CE_UNDO_MAX) ceState.undoStack.shift();
+      pushSnapshot(ceState.cutscene, ceState.undoStack);
       ceState.redoStack.length = 0;   // nueva acción → invalida redo
     } catch (err) { console.warn('[ceSnapshot] error:', err); }
   }
@@ -5571,49 +5558,76 @@ import { formatRelTime } from './utils/format';
     if (!ceState.undoStack.length) return;
     try {
       const cur = JSON.stringify(ceSerializeCutscene());
-      const prev = ceState.undoStack.pop();
+      const result = popUndo(ceState.undoStack, ceState.redoStack);
+      if (!result.data) return;
+      ceState.undoStack = result.undoStack;
+      ceState.redoStack = result.redoStack;
       ceState.redoStack.push(cur);
-      ceApplyCutsceneData(JSON.parse(prev));
+      ceApplyCutsceneData(result.data);
     } catch (err) { console.warn('[ceUndo] error:', err); }
   }
   function ceRedo() {
     if (!ceState.redoStack.length) return;
     try {
       const cur = JSON.stringify(ceSerializeCutscene());
-      const next = ceState.redoStack.pop();
+      const result = popRedo(ceState.redoStack, ceState.undoStack);
+      if (!result.data) return;
+      ceState.redoStack = result.redoStack;
+      ceState.undoStack = result.undoStack;
       ceState.undoStack.push(cur);
-      ceApplyCutsceneData(JSON.parse(next));
+      ceApplyCutsceneData(result.data);
     } catch (err) { console.warn('[ceRedo] error:', err); }
   }
 
-  function ceApplyCutsceneData(data) {
-    if (!data) return;
-    if (typeof ceClearAllFx === 'function') ceClearAllFx();
-    // Si el editor está abierto, primero remover los agentes de la cutscene
-    // anterior (van a ser reemplazados por los del data nuevo).
-    if (ceState.open) {
-      for (const a of agents.slice()) {
-        if (a._csAgent) {
-          if (a.mesh) scene.remove(a.mesh);
-          if (a.statusMesh) scene.remove(a.statusMesh);
-          const idx = agents.indexOf(a);
-          if (idx >= 0) agents.splice(idx, 1);
-        }
-      }
-    }
-    ceState.cutscene.duration = data.duration || 30;
-    ceState.cutscene.tracks = (data.tracks || []).map(tr => ({
+  function setCutsceneData(data, state) {
+    state.cutscene.duration = data.duration || 30;
+    state.cutscene.tracks = (data.tracks || []).map(tr => ({
       agentId: tr.agentId,
       keyframes: tr.keyframes || [],
       lastTriggeredT: -1,
     }));
-    ceState.cutscene.camera = {
-      // Solo mantener kfs con el modelo nuevo (position+target). Los viejos
-      // (theta/phi/zoom) se descartan — Pablo confirmó este reset.
-      keyframes: ((data.camera && data.camera.keyframes) || []).filter(k => k.position && k.target),
+    state.cutscene.camera = {
+      keyframes: ((data.camera && data.camera.keyframes) || []),
       povActive: false,
       parentAgentId: (data.camera && data.camera.parentAgentId) || null,
     };
+    state.cutscene.fx = data.fx || { entities: [] };
+    state.cutscene.walls = data.walls || { keyframes: [] };
+    state.cutscene.sceneNames = data.sceneNames || {};   // legacy (mapa nombre por tStart)
+    state.cutscene.scenes = Array.isArray(data.scenes) ? data.scenes.slice() : [];
+    state.cutscene.agents = Array.isArray(data.agents) ? data.agents.slice() : [];
+  }
+
+  function replaceCutsceneAgentsIfOpen(data) {
+    if (!ceState.open) return;
+    for (const a of agents.slice()) {
+      if (a._csAgent) {
+        if (a.mesh) scene.remove(a.mesh);
+        if (a.statusMesh) scene.remove(a.statusMesh);
+        const idx = agents.indexOf(a);
+        if (idx >= 0) agents.splice(idx, 1);
+      }
+    }
+    for (const csa of ceState.cutscene.agents) {
+      let cx = 0, cy = 0;
+      const tr = ceState.cutscene.tracks.find(t => t.agentId === csa.id);
+      if (tr) {
+        const moveKf = tr.keyframes.find(k => k.type === 'move');
+        if (moveKf) { cx = moveKf.cx; cy = moveKf.cy; }
+      }
+      const a = spawnAgent(cx, cy, {
+        id: csa.id, emoji: csa.emoji,
+        voiceIdx: csa.voiceIdx, needs: csa.needs,
+        csAgent: true,
+      });
+    }
+    if (!ceState.selectedAgentId && agents.length > 0) {
+      ceState.selectedAgentId = agents[0].id;
+    }
+    ceRefreshAgentSelect();
+  }
+
+  function refreshCameraGizmoFromData(data) {
     // Re-inicializar gizmo state desde el primer kf cargado, si existe.
     {
       const firstKf = ceState.cutscene.camera.keyframes[0];
@@ -5633,33 +5647,10 @@ import { formatRelTime } from './utils/format';
       if (typeof updateCameraGizmo === 'function') updateCameraGizmo();
       if (typeof ceSyncLensUI === 'function') ceSyncLensUI();
     }
-    ceState.cutscene.fx = data.fx || { entities: [] };
-    ceState.cutscene.walls = data.walls || { keyframes: [] };
-    ceState.cutscene.sceneNames = data.sceneNames || {};   // legacy (mapa nombre por tStart)
-    ceState.cutscene.scenes = Array.isArray(data.scenes) ? data.scenes.slice() : [];
-    ceState.cutscene.agents = Array.isArray(data.agents) ? data.agents.slice() : [];
-    // Si el editor está abierto, spawnar los agentes recién cargados
-    if (ceState.open) {
-      for (const csa of ceState.cutscene.agents) {
-        let cx = 0, cy = 0;
-        const tr = ceState.cutscene.tracks.find(t => t.agentId === csa.id);
-        if (tr) {
-          const moveKf = tr.keyframes.find(k => k.type === 'move');
-          if (moveKf) { cx = moveKf.cx; cy = moveKf.cy; }
-        }
-        const a = spawnAgent(cx, cy, {
-          id: csa.id, emoji: csa.emoji,
-          voiceIdx: csa.voiceIdx, needs: csa.needs,
-          csAgent: true,
-        });
-      }
-      if (!ceState.selectedAgentId && agents.length > 0) {
-        ceState.selectedAgentId = agents[0].id;
-      }
-      ceRefreshAgentSelect();
-    }
-    // Migrar formato viejo si aplica
-    ceFxMigrateModel(ceState.cutscene);
+  }
+
+  function refreshEditorAfterDataChange() {
+    if (typeof ceClearAllFx === 'function') ceClearAllFx();
     ceState.selectedFxEntityIdx = -1;
     cePovToggle.classList.remove('active');
     if (typeof updatePovFrame === 'function') updatePovFrame();
@@ -5683,22 +5674,28 @@ import { formatRelTime } from './utils/format';
     ceUpdateTimeDisplay();
     ceUpdateToolbarFields();
   }
+
+  function ceApplyCutsceneData(data) {
+    applyCutsceneDataWithCallbacks(data, {
+      setCutsceneData: (normalizedData) => setCutsceneData(normalizedData, ceState),
+      replaceCutsceneAgentsIfOpen,
+      refreshCameraGizmoFromData,
+      refreshEditorAfterDataChange,
+    });
+  }
   function ceSaveCurrent() {
     const defaultName = ceState.cutsceneName || 'Cutscene ' + new Date().toLocaleTimeString().slice(0, 5);
     showPrompt('Nombre de la cutscene:', defaultName, (name) => {
       const trimmed = (name || '').trim();
       if (!trimmed) return;
-      const saved = ceLoadAllSaved();
-      saved[trimmed] = ceSerializeCutscene();
-      ceWriteAllSaved(saved);
+      editorSaveCurrentCutscene(trimmed, ceState.cutscene);
       ceState.cutsceneName = trimmed;
       ceRefreshSavedSelect();
     });
   }
   function ceLoadByName(name) {
     if (!name) return;
-    const saved = ceLoadAllSaved();
-    const data = saved[name];
+    const data = editorLoadCutsceneByName(name);
     if (!data) return;
     ceApplyCutsceneData(data);
     ceState.cutsceneName = name;
@@ -5710,12 +5707,13 @@ import { formatRelTime } from './utils/format';
       || (ceState.cutscene.fx && ceState.cutscene.fx.entities && ceState.cutscene.fx.entities.length > 0)
       || (ceState.cutscene.walls && ceState.cutscene.walls.keyframes && ceState.cutscene.walls.keyframes.length > 0)
       || (ceState.cutscene.agents && ceState.cutscene.agents.length > 0);
-    const blank = { duration: 30, tracks: [], camera: { keyframes: [], parentAgentId: null }, fx: { entities: [] }, walls: { keyframes: [] }, agents: [], sceneNames: {}, scenes: [] };
+    const blank = editorNewEmptyCutscene();
     if (hasContent) {
       if (typeof showConfirm === 'function') {
         showConfirm('Empezar una cutscene nueva? Los cambios sin guardar se perderán.', () => {
           ceApplyCutsceneData(blank);
           ceState.cutsceneName = null;
+          clearStacks(ceState.undoStack, ceState.redoStack);
           ceRefreshSavedSelect();
         });
         return;
@@ -5723,15 +5721,14 @@ import { formatRelTime } from './utils/format';
     }
     ceApplyCutsceneData(blank);
     ceState.cutsceneName = null;
+    clearStacks(ceState.undoStack, ceState.redoStack);
     ceRefreshSavedSelect();
   }
   function ceDeleteCurrent() {
     const name = ceState.cutsceneName;
     if (!name) return;
     const doIt = () => {
-      const saved = ceLoadAllSaved();
-      delete saved[name];
-      ceWriteAllSaved(saved);
+      editorDeleteCutsceneByName(name);
       ceState.cutsceneName = null;
       ceRefreshSavedSelect();
     };
