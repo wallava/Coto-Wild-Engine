@@ -2,8 +2,47 @@
 // functions sobre props + grid.
 
 import { GRID_W, GRID_H } from './state';
-import { isBlockedByProp } from './pathfinding';
+import { isBlockedByProp, findPath } from './pathfinding';
 import type { PropAny } from './world';
+
+// Tipo mínimo del agente que necesitan estos helpers (path/target/waiting).
+type AgentTargetable = {
+  cx: number;
+  cy: number;
+  path: [number, number][];
+  target: [number, number] | null;
+  waiting: number;
+};
+
+// Asigna un destino al agente. Calcula path A* y lo setea, cancelando la
+// pausa actual. Devuelve true si se asignó (path no vacío y destino != celda).
+export function assignAgentTarget(
+  agent: AgentTargetable | null | undefined,
+  gx: number,
+  gy: number,
+): boolean {
+  if (!agent) return false;
+  if (gx === agent.cx && gy === agent.cy) return false;
+  const path = findPath(agent.cx, agent.cy, gx, gy);
+  if (path && path.length > 0) {
+    agent.path = path;
+    agent.target = [gx, gy];
+    agent.waiting = 0;
+    return true;
+  }
+  return false;
+}
+
+// Setea opacidad del mesh del agente (sprite). Marca transparent y needsUpdate.
+export function setAgentMeshOpacity(
+  agent: { mesh?: { material?: { opacity: number; transparent: boolean; needsUpdate: boolean } } },
+  opacity: number,
+): void {
+  if (!agent.mesh || !agent.mesh.material) return;
+  agent.mesh.material.opacity = opacity;
+  agent.mesh.material.transparent = opacity < 1;
+  agent.mesh.material.needsUpdate = true;
+}
 
 // El más cercano (Manhattan) de una lista de props desde (fromCx, fromCy).
 // La distancia se mide al centro del prop (considera w/d).

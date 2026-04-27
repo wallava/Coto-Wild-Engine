@@ -218,7 +218,10 @@ import {
   pickNearestProp,
   findWalkableAdjacentToProp,
   pickCellInZone,
+  assignAgentTarget,
+  setAgentMeshOpacity,
 } from './engine/agent-helpers';
+import { ensureAgentStatus, clearAgentStatus } from './engine/agent-status';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -1901,12 +1904,7 @@ import { formatRelTime } from './utils/format';
   const AGENT_DRAG_ROT_GAIN = 0.011;  // factor velocidad → rotación
   const AGENT_DRAG_ROT_DAMP = 12;     // damping de la rotación
 
-  function setAgentMeshOpacity(agent, opacity) {
-    if (!agent.mesh || !agent.mesh.material) return;
-    agent.mesh.material.opacity = opacity;
-    agent.mesh.material.transparent = opacity < 1;
-    agent.mesh.material.needsUpdate = true;
-  }
+  // setAgentMeshOpacity ahora en src/engine/agent-helpers.ts.
 
   function isCellValidForAgentDrop(cx, cy, ignoreAgent) {
     if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return false;
@@ -2117,18 +2115,7 @@ import { formatRelTime } from './utils/format';
 
   // pickNearestProp + findWalkableAdjacentToProp ahora en src/engine/agent-helpers.ts.
 
-  function assignAgentTarget(agent, gx, gy) {
-    if (!agent) return false;
-    if (gx === agent.cx && gy === agent.cy) return false;
-    const path = findPath(agent.cx, agent.cy, gx, gy);
-    if (path && path.length > 0) {
-      agent.path = path;
-      agent.target = [gx, gy];
-      agent.waiting = 0;     // cancelar pausa actual
-      return true;
-    }
-    return false;
-  }
+  // assignAgentTarget ahora en src/engine/agent-helpers.ts.
 
   function pickRandomDestination(agent) {
     // Si el agente está working, no busca nuevo destino
@@ -8346,43 +8333,8 @@ import { formatRelTime } from './utils/format';
   //  NEEDS — decay + restore + autonomous seeking + working state
   // ══════════════════════════════════════════════════════════════
 
-  // Crea o actualiza el sprite de status (emoji sobre la cabeza) del agente
-  // según su need crítica. Si no hay need crítica, lo borra.
-  function ensureStatusMesh(agent, emoji) {
-    if (agent.statusEmoji === emoji) return;
-    if (agent.statusMesh) {
-      scene.remove(agent.statusMesh);
-      if (agent.statusMesh.material.map) agent.statusMesh.material.map.dispose();
-      agent.statusMesh.material.dispose();
-      agent.statusMesh = null;
-    }
-    agent.statusEmoji = emoji;
-    if (!emoji) return;
-    // Render emoji a textura
-    const canvas = document.createElement('canvas');
-    canvas.width = 96; canvas.height = 96;
-    const ctx = canvas.getContext('2d');
-    ctx.font = '72px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, 48, 52);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    const mat = new THREE.SpriteMaterial({
-      map: tex, depthTest: false, transparent: true,
-      alphaTest: 0.05, depthWrite: false,
-    });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(36, 36, 1);
-    sprite.renderOrder = 1001;
-    scene.add(sprite);
-    agent.statusMesh = sprite;
-  }
-
-  function getAgentZone(agent) {
-    return getZoneAt(agent.cx, agent.cy);
-  }
+  // ensureStatusMesh ahora en src/engine/agent-status.ts (ensureAgentStatus).
+  const ensureStatusMesh = ensureAgentStatus;
 
   // getAgentMostCriticalNeed + findZoneForNeed ahora en src/game/needs.ts.
 
@@ -8395,15 +8347,7 @@ import { formatRelTime } from './utils/format';
       // actores de teatro, no NPCs del mundo). Si ya tenían statusMesh visible,
       // limpiarlo.
       if (agent._csAgent) {
-        if (agent.statusMesh) {
-          scene.remove(agent.statusMesh);
-          if (agent.statusMesh.material) {
-            if (agent.statusMesh.material.map) agent.statusMesh.material.map.dispose();
-            agent.statusMesh.material.dispose();
-          }
-          agent.statusMesh = null;
-          agent.statusEmoji = null;
-        }
+        clearAgentStatus(agent);
         continue;
       }
       // 1) Decay
@@ -8411,7 +8355,7 @@ import { formatRelTime } from './utils/format';
         agent.needs[k] = Math.max(0, agent.needs[k] - NEED_DECAY[k] * dt);
       }
       // 2) Restore basado en zona actual
-      const zoneInfo = getAgentZone(agent);
+      const zoneInfo = getZoneAt(agent.cx, agent.cy);
       if (zoneInfo && zoneInfo.zone.kind) {
         const restores = ZONE_RESTORES[zoneInfo.zone.kind] || {};
         const mult = agent.working ? WORKING_RESTORE_MULT : 1;
