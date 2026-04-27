@@ -244,6 +244,14 @@ import {
   getDragGhost,
 } from './engine/agent-drag';
 import {
+  initAgentSelection,
+  selectAgent,
+  clearAgentSelection,
+  getAgentFromEvent,
+  getSelectedAgent,
+  getAgentHighlight,
+} from './engine/agent-selection';
+import {
   getMinCellsForZones,
   setMinCellsForZones,
   canPaintZoneCell,
@@ -1695,45 +1703,9 @@ import { formatRelTime } from './utils/format';
   const setAgentFacing = setAgentFacingImpl;
   const syncAgentMesh = syncAgentMeshImpl;
 
-  // ── Selección de agente (click-to-move) ──
-  let selectedAgent = null;
-  let agentHighlight = null;
-
-  function selectAgent(agent) {
-    clearAgentSelection();
-    selectedAgent = agent;
-    if (!agent) return;
-    // Anillo translúcido amarillo en el piso bajo el agente
-    const geo = new THREE.RingGeometry(20, 26, 28);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffe060, transparent: true, opacity: 0.75, depthTest: false,
-      side: THREE.DoubleSide,
-    });
-    agentHighlight = new THREE.Mesh(geo, mat);
-    agentHighlight.renderOrder = 998;
-    scene.add(agentHighlight);
-    syncAgentMesh(agent);
-  }
-
-  function clearAgentSelection() {
-    if (agentHighlight) {
-      scene.remove(agentHighlight);
-      agentHighlight.geometry.dispose();
-      agentHighlight.material.dispose();
-      agentHighlight = null;
-    }
-    selectedAgent = null;
-  }
-
-  function getAgentFromEvent(event) {
-    setRaycasterFromEvent(event);
-    const sprites = agents.map(a => a.mesh).filter(Boolean);
-    if (sprites.length === 0) return null;
-    const hits = _raycaster.intersectObjects(sprites, false);
-    if (hits.length === 0) return null;
-    return agents.find(a => a.mesh === hits[0].object) || null;
-  }
+  // ── Selección de agente ──
+  // Toda la lógica vive en src/engine/agent-selection.ts.
+  initAgentSelection(() => agents);
 
   // ── Drag de agentes (estilo Tomodachi) ──
   // Toda la lógica state + physics vive en src/engine/agent-drag.ts.
@@ -1747,10 +1719,10 @@ import { formatRelTime } from './utils/format';
   // Wire del chassis: necesita los getters de drag (ghost) + selección
   // (highlight) para sincronizar facing + posición desde sus helpers.
   initAgentChassis({
-    getDraggedAgent: () => getDraggedAgent(),
-    getAgentDragGhost: () => getDragGhost(),
-    getSelectedAgent: () => selectedAgent,
-    getAgentHighlight: () => agentHighlight,
+    getDraggedAgent,
+    getAgentDragGhost: getDragGhost,
+    getSelectedAgent,
+    getAgentHighlight,
     pickRandomKit: () => AGENT_KITS[Math.floor(Math.random() * AGENT_KITS.length)],
   });
 
