@@ -36,7 +36,7 @@ type FocusableElement =
 
 type TestModel = Parameters<SessionCostTracker['canAffordEstimatedCall']>[0];
 
-const TEST_MODEL = 'claude-haiku-4-5' as TestModel;
+const TEST_MODEL: TestModel = 'haiku-4-5';
 const DEFAULT_SESSION_CAP_USD = 0.50;
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
@@ -284,7 +284,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
       return window.confirm('Borrar API key?');
     } catch (err: unknown) {
       const sanitized = sanitizeError(err);
-      updateMessage(message, `Confirm bloqueado: ${sanitized}`, '#ff6b6b');
+      updateMessage(message, `Confirm bloqueado: ${sanitized.message}`, '#ff6b6b');
       return false;
     }
   }
@@ -302,7 +302,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
       updateMessage(message, 'API key guardada', '#8fd694');
     } catch (err: unknown) {
       const sanitized = sanitizeError(err);
-      updateMessage(message, `No se pudo guardar API key: ${sanitized}`, '#ff6b6b');
+      updateMessage(message, `No se pudo guardar API key: ${sanitized.message}`, '#ff6b6b');
     }
   }
 
@@ -316,7 +316,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
       updateMessage(message, 'API key borrada', '#8fd694');
     } catch (err: unknown) {
       const sanitized = sanitizeError(err);
-      updateMessage(message, `No se pudo borrar API key: ${sanitized}`, '#ff6b6b');
+      updateMessage(message, `No se pudo borrar API key: ${sanitized.message}`, '#ff6b6b');
     }
   }
 
@@ -342,7 +342,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
       updateMessage(message, 'Conexión OK', '#8fd694');
     } catch (err: unknown) {
       const sanitized = sanitizeError(err);
-      updateMessage(message, `Conexión falló: ${sanitized}`, '#ff6b6b');
+      updateMessage(message, `Conexión falló: ${sanitized.message}`, '#ff6b6b');
     }
   }
 
