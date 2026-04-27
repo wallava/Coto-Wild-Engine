@@ -133,6 +133,10 @@ import {
   isCutsceneControlled as runtimeIsCutsceneControlled,
 } from './cutscene/runtime';
 import {
+  updateGizmoPose as editorUpdateGizmoPose,
+  resetGizmoPose as editorResetGizmoPose,
+} from './editor/gizmo';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -1609,31 +1613,13 @@ import { formatRelTime } from './utils/format';
   }
 
   function updateCameraGizmo() {
-    if (!cameraGizmo) return;
-    const cam = ceState.cutscene && ceState.cutscene.camera;
-    if (!cam) return;
-    const pos = cam.gizmoPosition || { x: 0, y: 200, z: 300 };
-    const tgt = cam.gizmoTarget   || { x: 0, y: 0,   z: 0   };
-    const lens = cam.gizmoLens || 50;
-    const roll = cam.gizmoRoll || 0;
-    const allKfs = ((cam.keyframes || []).filter(k => k.position && k.target))
-      .slice().sort((a, b) => a.t - b.t);
-    renderCameraGizmoPose(
-      { position: pos, target: tgt, lens, roll },
-      allKfs.map(k => k.position),
-    );
+    editorUpdateGizmoPose(ceState.cutscene && ceState.cutscene.camera, !!cameraGizmo);
   }
 
   // setCameraGizmoVisible viene del import directo (no shim).
 
-  // Reset: cámara cinemática vuelve a una pose default cómoda mirando al centro.
   function ceResetCameraGizmo() {
-    const cam = ceState.cutscene.camera;
-    cam.gizmoPosition = { x: 200, y: 250, z: 300 };
-    cam.gizmoTarget   = { x: 0,   y: 30,  z: 0   };
-    cam.gizmoLens     = 50;
-    cam.gizmoProjection = 'perspective';
-    cam.gizmoRoll     = 0;   // radianes — rotación sobre eje de mira (barrel roll)
+    editorResetGizmoPose(ceState.cutscene.camera);
     updateCameraGizmo();
     if (typeof ceSyncLensUI === 'function') ceSyncLensUI();
   }

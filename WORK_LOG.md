@@ -99,6 +99,16 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 - Diferido: split del body de `ceUpdate` por subsistema. Razón: Codex review previa marcó este split como NO-low-risk — preservar orden per-frame exacto requiere más cuidado del que cabe en nocturno autónomo. Decidido extraer solo helpers periféricos.
 - Validación: `npx tsc --noEmit` ✅
 
+**TASK Wave E**: wire-in `src/editor/gizmo.ts` en legacy
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `src/legacy.ts` (import + 2 wrappers)
+- Funciones cableadas: `updateGizmoPose(camera, gizmoExists)`, `resetGizmoPose(camera)`. Reemplazan bodies de `updateCameraGizmo` (legacy:1611-1625) y `ceResetCameraGizmo` (legacy:1630-1639).
+- Validación: tsc ✅, smoke-test ✅
+- Notas: Wave E previa había creado `gizmo.ts` sin cablear (entró a `714a8a3` baseline como dead code). Esta entrada cierra el wire-in.
+
+**TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
+
 ---
 
 ## 2026-04-27 08:15 - HANDOFF nocturno: bypass mode no estaba activo, requiere restart Claude
