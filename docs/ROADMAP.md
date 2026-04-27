@@ -20,8 +20,8 @@ Sin esto, todo lo demás está en pausa.
 - [x] **Fase 1**: bulk del monolito a `legacy.ts` (con `@ts-nocheck`),
   imports CDN → ES modules pinneados.
 - [ ] **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con
-  APIs explícitos. **52 módulos extraídos hasta 2026-04-27** (~46%
-  del legacy migrado, 7102 líneas restantes). Ver `ARCHITECTURE.md`
+  APIs explícitos. **58 módulos extraídos hasta 2026-04-27** (~50%
+  del legacy migrado, 6798 líneas restantes). Ver `ARCHITECTURE.md`
   para inventario.
 - [ ] **Fase 3**: schemas Zod + migrations de datos persistidos.
 - [ ] Verificar paridad con monolito (todo lo que andaba antes anda ahora).
@@ -44,13 +44,32 @@ Sin esto, todo lo demás está en pausa.
 - ✅ zone-edit (start/stop + drag add/remove) — Codex Wave 3
 - ✅ loadWorldData (geometry+props+zones — agents quedan en legacy hasta extraer applyWorld completo)
 
+### Sesión 2026-04-27 (continuación) — cutscene chunk 1 (modelo puro)
+
+- ✅ cutscene/model.ts (tipos + forEachCutsceneKf iterator)
+- ✅ cutscene/scenes.ts (ensureSceneConsistency mutante + computeSceneView puro split)
+- ✅ cutscene/inheritance.ts (chain + lastKfWithInheritance + kfIsVisible)
+- ✅ cutscene/keyframes.ts (shift/warp/reassign/filter/assign)
+- ✅ cutscene/camera.ts (interpCameraPose)
+- ✅ cutscene/walls.ts (computeWallStateAt)
+
 ### Pendientes Fase 2 grandes
 
-- **CUTSCENE EDITOR** — shell + FX + timeline + persistencia (~5000 líneas
-  legacy). La pieza más compleja. **Plan detallado en
-  `docs/CUTSCENE_EXTRACT_PLAN.md`** (104 funciones, 13 subsistemas,
-  destinos cutscene/editor/engine, orden propuesto). Próxima sesión
-  dedicada.
+- **CUTSCENE EDITOR** — chunk 1 modelo puro hecho (6 archivos en
+  `src/cutscene/`). **Pendiente sesión dedicada**:
+  - Editor lifecycle (ceOpen/ceClose — CRITICAL: muta agents global)
+  - Runtime evaluation (ceUpdate, partir por subsistema)
+  - Persistence/undo (ceSnapshot, ceUndo, ceRedo, ceApplyCutsceneData)
+  - Timeline rendering (DOM heavy)
+  - Camera gizmo editor wrapper
+  - FX system (singleton mutable)
+  - POV controls
+  - Toolbar UI
+  - Multi-select + lasso
+  - Drag/snap ops
+  - ceInsertCutAt (cuando snapshot/render disponibles)
+  - Mouse handlers globales
+  - Plan detallado: `docs/CUTSCENE_EXTRACT_PLAN.md`
 - **applyWorld + loadSlot + resetWorldToDefault** — cierre persistencia
   (loadWorldData ya extraído; falta agents restoration).
 - **buildScene loop + corner posts + props render** — chunk medio del IIFE,
