@@ -76,6 +76,22 @@ import {
   kfIsVisible as cutsceneKfIsVisible,
 } from './cutscene/inheritance';
 import {
+  shiftKeyframesBySceneId as cutsceneShiftKeyframesBySceneId,
+  warpKeyframesBySceneId as cutsceneWarpKeyframesBySceneId,
+  shiftKeyframesInRange as cutsceneShiftKeyframesInRange,
+  warpKeyframesInRange as cutsceneWarpKeyframesInRange,
+  filterKfsToScene as cutsceneFilterKfsToScene,
+  assignSceneIdToKf as cutsceneAssignSceneIdToKf,
+  reassignKfsByTime as cutsceneReassignKfsByTime,
+  reassignKfsByOwnerToTarget as cutsceneReassignKfsByOwnerToTarget,
+} from './cutscene/keyframes';
+import {
+  interpCameraPose as cutsceneInterpCameraPose,
+} from './cutscene/camera';
+import {
+  computeWallStateAt as cutsceneComputeWallStateAt,
+} from './cutscene/walls';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -3366,30 +3382,13 @@ import { formatRelTime } from './utils/format';
 
   // Asigna sceneId a un kf según el plano que contiene su t (si lo hay).
   function ceAssignSceneIdToKf(kf) {
-    const sc = ceSceneAt(kf.t);
-    kf.sceneId = sc ? sc.id : null;
-    return kf;
+    return cutsceneAssignSceneIdToKf(kf, ceComputeScenes());
   }
 
   // Reasigna sceneId a kfs cuyo t cae en [tA, tB) (usado al dividir un plano
   // con tijera: la mitad derecha pasa al nuevo plano).
   function ceReassignKfsByTime(tA, tB, newSceneId) {
-    const inR = (t) => t >= tA - 0.001 && t < tB - 0.001;
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      for (const k of cam.keyframes) if (inR(k.t)) k.sceneId = newSceneId;
-    }
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      for (const k of ceState.cutscene.walls.keyframes) if (inR(k.t)) k.sceneId = newSceneId;
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) for (const k of ent.keyframes) if (inR(k.t)) k.sceneId = newSceneId;
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) for (const k of tr.keyframes) if (inR(k.t)) k.sceneId = newSceneId;
-    }
+    cutsceneReassignKfsByTime(ceState.cutscene, tA, tB, newSceneId);
   }
 
   // Renombra plano por id
@@ -3936,34 +3935,7 @@ import { formatRelTime } from './utils/format';
 
   // Helper: pose interpolada en t (para insertar cuts sin romper animación)
   function ceInterpCameraPose(t) {
-    const cam = ceState.cutscene.camera;
-    const kfs = (cam.keyframes || []).filter(k => k.position && k.target).sort((a, b) => a.t - b.t);
-    if (kfs.length === 0) return null;
-    let prev = null, next = null;
-    for (let i = 0; i < kfs.length; i++) {
-      if (kfs[i].t <= t) prev = kfs[i];
-      else { next = kfs[i]; break; }
-    }
-    if (prev && next && !next.cut) {
-      const lerp = (next.t === prev.t) ? 0 : (t - prev.t) / (next.t - prev.t);
-      return {
-        position: {
-          x: prev.position.x + (next.position.x - prev.position.x) * lerp,
-          y: prev.position.y + (next.position.y - prev.position.y) * lerp,
-          z: prev.position.z + (next.position.z - prev.position.z) * lerp,
-        },
-        target: {
-          x: prev.target.x + (next.target.x - prev.target.x) * lerp,
-          y: prev.target.y + (next.target.y - prev.target.y) * lerp,
-          z: prev.target.z + (next.target.z - prev.target.z) * lerp,
-        },
-        roll: (prev.roll || 0) + ((next.roll || 0) - (prev.roll || 0)) * lerp,
-        lens: (prev.lens || 50) + ((next.lens || 50) - (prev.lens || 50)) * lerp,
-      };
-    }
-    if (prev) return { position: { ...prev.position }, target: { ...prev.target }, roll: prev.roll || 0, lens: prev.lens || 50 };
-    if (next) return { position: { ...next.position }, target: { ...next.target }, roll: next.roll || 0, lens: next.lens || 50 };
-    return null;
+    return cutsceneInterpCameraPose(ceState.cutscene.camera.keyframes, t);
   }
 
   // Mueve un plano: shift de tStart por dt. Mueve el cut que lo inicia
@@ -4081,21 +4053,7 @@ import { formatRelTime } from './utils/format';
 
   // Reasigna todos los kfs cuyo sceneId === oldId al newId.
   function ceReassignKfsByOwnerToTarget(oldId, newId) {
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      for (const k of cam.keyframes) if (k.sceneId === oldId) k.sceneId = newId;
-    }
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      for (const k of ceState.cutscene.walls.keyframes) if (k.sceneId === oldId) k.sceneId = newId;
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) for (const k of ent.keyframes) if (k.sceneId === oldId) k.sceneId = newId;
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) for (const k of tr.keyframes) if (k.sceneId === oldId) k.sceneId = newId;
-    }
+    cutsceneReassignKfsByOwnerToTarget(ceState.cutscene, oldId, newId);
   }
 
   // Mueve un plano: aplica snap suave al borde de vecinos. Si el usuario
@@ -4154,124 +4112,23 @@ import { formatRelTime } from './utils/format';
   // dormidos (fuera del rango actual del plano), para que cuando se extienda
   // el plano de nuevo vuelvan a aparecer en sus posiciones relativas.
   function ceShiftKeyframesBySceneId(sceneId, dt) {
-    if (!sceneId || Math.abs(dt) < 0.001) return;
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      for (const k of cam.keyframes) if (k.sceneId === sceneId) k.t += dt;
-      cam.keyframes.sort((a, b) => a.t - b.t);
-    }
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      for (const k of ceState.cutscene.walls.keyframes) if (k.sceneId === sceneId) k.t += dt;
-      ceState.cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) {
-          for (const k of ent.keyframes) if (k.sceneId === sceneId) k.t += dt;
-          ent.keyframes.sort((a, b) => a.t - b.t);
-        }
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) {
-        for (const k of tr.keyframes) if (k.sceneId === sceneId) k.t += dt;
-        tr.keyframes.sort((a, b) => a.t - b.t);
-      }
-    }
+    cutsceneShiftKeyframesBySceneId(ceState.cutscene, sceneId, dt);
   }
 
   // Time-warp solo para kfs vinculados a un sceneId. Mapea t en [oldStart, oldEnd]
   // a [newStart, newEnd]. No toca kfs de otros planos.
   function ceWarpKeyframesBySceneId(sceneId, oldStart, oldEnd, newStart, newEnd) {
-    const oldDur = oldEnd - oldStart;
-    const newDur = newEnd - newStart;
-    if (oldDur < 0.001 || !sceneId) return;
-    const factor = newDur / oldDur;
-    const remap = (t) => newStart + (t - oldStart) * factor;
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      for (const k of cam.keyframes) if (k.sceneId === sceneId) k.t = remap(k.t);
-      cam.keyframes.sort((a, b) => a.t - b.t);
-    }
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      for (const k of ceState.cutscene.walls.keyframes) if (k.sceneId === sceneId) k.t = remap(k.t);
-      ceState.cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) {
-          for (const k of ent.keyframes) if (k.sceneId === sceneId) k.t = remap(k.t);
-          ent.keyframes.sort((a, b) => a.t - b.t);
-        }
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) {
-        for (const k of tr.keyframes) if (k.sceneId === sceneId) k.t = remap(k.t);
-        tr.keyframes.sort((a, b) => a.t - b.t);
-      }
-    }
+    cutsceneWarpKeyframesBySceneId(ceState.cutscene, sceneId, oldStart, oldEnd, newStart, newEnd);
   }
 
   // Legacy: kfs sin sceneId — usar rango temporal (compat).
   function ceShiftKeyframesInRange(tA, tB, dt, inclusiveStart, inclusiveEnd) {
-    const inRange = (t) => {
-      const a = inclusiveStart ? (t >= tA - 0.001) : (t > tA + 0.001);
-      const b = inclusiveEnd   ? (t <= tB + 0.001) : (t < tB - 0.001);
-      return a && b;
-    };
-    const cam = ceState.cutscene.camera;
-    for (const kf of (cam.keyframes || [])) {
-      if (inRange(kf.t)) kf.t += dt;
-    }
-    cam.keyframes.sort((a, b) => a.t - b.t);
-    for (const kf of (ceState.cutscene.walls.keyframes || [])) {
-      if (inRange(kf.t)) kf.t += dt;
-    }
-    ceState.cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
-    for (const ent of ((ceState.cutscene.fx && ceState.cutscene.fx.entities) || [])) {
-      for (const kf of (ent.keyframes || [])) {
-        if (inRange(kf.t)) kf.t += dt;
-      }
-      if (ent.keyframes) ent.keyframes.sort((a, b) => a.t - b.t);
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      for (const kf of (tr.keyframes || [])) {
-        if (inRange(kf.t)) kf.t += dt;
-      }
-      if (tr.keyframes) tr.keyframes.sort((a, b) => a.t - b.t);
-    }
+    cutsceneShiftKeyframesInRange(ceState.cutscene, tA, tB, dt, inclusiveStart, inclusiveEnd);
   }
 
   // Time-warp: kfs en rango [oldStart, oldEnd] se mapean a [newStart, newEnd].
   function ceWarpKeyframesInRange(oldStart, oldEnd, newStart, newEnd) {
-    const oldDur = oldEnd - oldStart;
-    const newDur = newEnd - newStart;
-    if (oldDur < 0.001) return;
-    const factor = newDur / oldDur;
-    const remap = (t) => newStart + (t - oldStart) * factor;
-    const inRange = (t) => t >= oldStart - 0.001 && t <= oldEnd + 0.001;
-    const cam = ceState.cutscene.camera;
-    for (const kf of (cam.keyframes || [])) {
-      if (inRange(kf.t)) kf.t = remap(kf.t);
-    }
-    cam.keyframes.sort((a, b) => a.t - b.t);
-    for (const kf of (ceState.cutscene.walls.keyframes || [])) {
-      if (inRange(kf.t)) kf.t = remap(kf.t);
-    }
-    ceState.cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
-    for (const ent of ((ceState.cutscene.fx && ceState.cutscene.fx.entities) || [])) {
-      for (const kf of (ent.keyframes || [])) {
-        if (inRange(kf.t)) kf.t = remap(kf.t);
-      }
-      if (ent.keyframes) ent.keyframes.sort((a, b) => a.t - b.t);
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      for (const kf of (tr.keyframes || [])) {
-        if (inRange(kf.t)) kf.t = remap(kf.t);
-      }
-      if (tr.keyframes) tr.keyframes.sort((a, b) => a.t - b.t);
-    }
+    cutsceneWarpKeyframesInRange(ceState.cutscene, oldStart, oldEnd, newStart, newEnd);
   }
 
   // Un kf es "visible" en el timeline solo si su scene asignada existe Y su t
@@ -4656,14 +4513,7 @@ import { formatRelTime } from './utils/format';
   // (si el plano se acortó, los kfs que quedaron fuera se ocultan).
   // Si scene es null (gap), devuelve [].
   function ceFilterKfsToScene(kfs, scene) {
-    if (!scene) return [];
-    return kfs.filter(k => {
-      if (k.sceneId !== undefined && k.sceneId !== null) {
-        if (k.sceneId !== scene.id) return false;
-        return k.t >= scene.tStart - 0.001 && k.t < scene.tEnd + 0.001;
-      }
-      return k.t >= scene.tStart - 0.001 && k.t < scene.tEnd - 0.001;
-    });
+    return cutsceneFilterKfsToScene(kfs, scene);
   }
 
   // Cadena de continuidad: planos con MISMO escenaRootId que el actual,
@@ -4681,20 +4531,7 @@ import { formatRelTime } from './utils/format';
   }
 
   function ceComputeWallStateAt(t) {
-    const scene = ceSceneAt(t);
-    if (!scene) return { hiddenIds: new Set() };
-    const allKfs = (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) || [];
-    // 1) kfs del plano actual con t <= playhead
-    const inScene = ceFilterKfsToScene(allKfs, scene).filter(k => k.t <= t + 1e-6);
-    if (inScene.length > 0) {
-      let best = null;
-      for (const kf of inScene) if (!best || kf.t > best.t) best = kf;
-      return { hiddenIds: new Set(best.hiddenIds || []) };
-    }
-    // 2) Si no hay, heredar de planos anteriores (si scene.inheritState=true)
-    const inh = ceLastKfWithInheritance(allKfs, scene, t);
-    if (inh) return { hiddenIds: new Set(inh.hiddenIds || []) };
-    return { hiddenIds: new Set() };
+    return cutsceneComputeWallStateAt(ceState.cutscene, t, ceComputeScenes());
   }
   // Aplica un set de hiddenIds al scene actual. Toca walls + props + roof meshes.
   // Cuando se oculta una pared con id 'N:cx,cy' o 'W:cx,cy' que tiene una puerta
