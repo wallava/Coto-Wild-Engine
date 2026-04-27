@@ -66,6 +66,43 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 15:50 - [FASE 4 INTERACTIVA] R1 parser + schema-ast + tests (paralelo)
+
+**Plan inicial**: contrato AST fijo + Round 1 paralelo. CODEX-1 parser, CODEX-2 schema-ast, CODEX-7A tests. Reparto recalibrado a Codex (tokens Claude bajos).
+
+**Review loop con Codex**: 1 round (R0 contrato + R1 plan).
+- 4 bloqueantes aceptados:
+  1. `CutsceneAst.finalTransition?` top-level (no en última scene).
+  2. `ActionAst.actor: string` requerido (no nullable).
+  3. `AgentAst.location: string` opaco zone-id en R1 (no `cell:cx,cy`).
+  4. Schema-ast `.strict()` (no `.passthrough()`) para detectar bugs en parser.
+- Sugerencias aceptadas: coma separa subjects de modifiers en `Cámara:`; camera move como cláusula `mover kind clave=valor`; warn duración sum vs total diferido a R3 compiler.
+
+**Tasks**:
+
+### CODEX-1: src/cutscene/parser.ts (delegated)
+- Codex session: a898345d8a6832175 (background, completed).
+- 345 LOC. Función `parseDsl(source): ParseResult`.
+- Soporta: H1 título, Agentes:, Duración:, ## Plano N (Ms), Cámara: con shotType + subjects + lente/mover modifiers, líneas de acción con timestamp opcional, comentarios %%%, transición final.
+
+### CODEX-2: src/cutscene/schema-ast.ts (delegated)
+- Codex session: ab2ef0a4e0835cc9d (background, completed).
+- 86 LOC. CutsceneAstSchema, SceneAstSchema, ActionAstSchema, AgentAstSchema, CameraDirectiveAstSchema, CameraMoveAstSchema + enums.
+- TODOS con `.strict()`. Tipos via z.infer<>.
+
+### CODEX-7A: tests parser + schema-ast (delegated)
+- Codex session: a2ac9dbb4e5fdcebc (background, completed).
+- 14 tests parser (1 skipped) + 19 tests schema-ast.
+- Test crítico round-trip: parser output validado contra CutsceneAstSchema → success.
+- Skipped test: "DSL sin Duración devuelve error" — parser inicializa duration=0 en vez de ParseError. **Bug del parser**, abordado en commit siguiente.
+
+**Review post-ejecución**: ✅ campos idénticos en parser y schema-ast.
+
+**Validación**: tsc ✅, smoke ✅, npm test 132/132 (1 skipped) ✅.
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 15:05 - [FASE 3.5 INTERACTIVA] Cablear validate+migrate en callers (cierre Fase 3)
 
 **Plan inicial**: cablear validateCutscene en getSavedCutscene + validateWorld en loadFromStorage. Migration fallback en ambos.
