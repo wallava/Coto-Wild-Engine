@@ -66,6 +66,30 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 11:15 - [INTERACTIVA] D1 ceStartGroupDrag → editor/multi-sel.ts
+
+**Plan inicial**: extraer ceStartGroupDrag (~85 LOC) a multi-sel.ts. Crear tipos `ActiveGroupDrag` + `GroupDragAnchor` + `GroupDragInitial`. Wire-in con wrapper thin que llama editorStartGroupDrag(state, cutscene, anchor, kind, startX, alt) + ceRenderTracks().
+
+**Review loop con Codex**: 1 round.
+- Codex bloqueantes (4 aceptados):
+  1. GroupDragState en scene-ops.ts solo tiene `initial` — crear `ActiveGroupDrag` separado en multi-sel.ts.
+  2. anchor type necesita aceptar extra `t` field (caller legacy:5357 pasa { kind, ..., t: kf.t }).
+  3. anchorKind debe ser literal `'scene' | 'kf'` (no identifiers).
+  4. Reads downstream rotos sin tipo completo.
+- Codex sugerencias aceptadas: orden explícito (baseline → clones → mutar multiSel → render), comentar bug duplicados (sceneId+t), preservar shallow clone.
+- Decisiones tomadas: tipo separado `ActiveGroupDrag` en multi-sel.ts; bug preservado con comentario.
+- Total rounds: 1.
+
+**Tasks**:
+
+### CLAUDE-D1: extraer ceStartGroupDrag
+- Archivos: `src/editor/multi-sel.ts` (+155 LOC: types + startGroupDrag), `src/legacy.ts` (~85 LOC reemplazadas por wrapper de 4 LOC).
+- Validación: tsc ✅, smoke-test ✅.
+- Validación visual Pablo: ✅ (group drag move + alt-clone + esc cancel).
+- Status: ✅ Done.
+
+---
+
 ## 2026-04-27 09:30 - [NOCTURNO] Cierre completo: Waves H/I/J + diferidos + tests
 
 **Activación**: continuación post-Wave G. Pablo pidió Waves H, I, J + diferidos + tests, soft stop 8:00 AM o fin migración.

@@ -2,10 +2,13 @@
  * Multi-selección + lasso del editor de cutscenes.
  *
  * Operaciones puras sobre el state `{ scenes: string[], kfs: MultiSelKfId[] }`
- * + helpers DOM para el rectángulo de lasso. El group-drag (clone + apply)
- * queda en legacy hasta Wave I lifecycle por coupling con `ceCloneScene` /
- * `ceSerializeCutscene` / `ceRenderTracks`.
+ * + helpers DOM para el rectángulo de lasso + start de group-drag (clone
+ * cuando alt). El render de tracks queda en el caller.
  */
+
+import type { Cutscene } from '../cutscene/model';
+import { serializeCutscene } from '../cutscene/persistence';
+import { cloneScene } from '../cutscene/scene-ops';
 
 export type MultiSelKfKind = 'camera' | 'walls' | 'fx' | 'agent';
 
@@ -189,4 +192,158 @@ export function computeLassoSelection(
       state.multiSel.kfs.push({ kind, trackIdx, fxEntityIdx, kfIdx });
     }
   }
+}
+
+// ── Group drag (start) ────────────────────────────────────────────────
+
+export type GroupDragInitial = {
+  scenes: Array<{ id: string; tStart: number }>;
+  kfs: Array<{ id: MultiSelKfId; kfRef: any; t: number }>;
+};
+
+export type ActiveGroupDrag = {
+  startX: number;
+  anchorKind: 'scene' | 'kf';
+  anchorScene: string | null;
+  anchorKf: (MultiSelKfId & { t?: number }) | null;
+  initial: GroupDragInitial;
+  baseline: string;
+  moved: boolean;
+  cloning: boolean;
+};
+
+/** Anchor del drag: sceneId (string) o kfId (con `t` opcional del caller). */
+export type GroupDragAnchor = string | (MultiSelKfId & { t?: number });
+
+type GroupDragHostState = {
+  multiSel: MultiSelState;
+  groupDrag: ActiveGroupDrag | null;
+};
+
+/**
+ * Inicia un group-drag: snapshot baseline, clona el grupo si `alt`, y arma
+ * `state.groupDrag` con refs directas a kfs (sobreviven a re-orderings).
+ *
+ * Orden explícito (cambiarlo rompe cancelación / selección):
+ *   1. baseline = serializeCutscene(cutscene) [antes de cualquier mutación]
+ *   2. Si alt: clone scenes → idMap → clone kfs sueltos → mutar state.multiSel
+ *   3. Build initial con kfRef directos
+ *   4. Set state.groupDrag
+ *
+ * NOTA: el match de kfs clonados por `(sceneId, t)` con tolerancia 0.0001
+ * es frágil cuando hay múltiples kfs del mismo tipo en el mismo plano y
+ * mismo `t`. Preserva el comportamiento legacy — no corregir acá.
+ *
+ * NOTA: el clone de `position`/`target`/`hiddenIds` es shallow (una sola
+ * spread). Preserva legacy — no profundizar.
+ */
+export function startGroupDrag(
+  state: GroupDragHostState,
+  cutscene: Cutscene,
+  anchor: GroupDragAnchor,
+  anchorKind: 'scene' | 'kf',
+  startX: number,
+  alt: boolean,
+): void {
+  // 1. Snapshot baseline ANTES de cualquier mutación.
+  const baseline = JSON.stringify(serializeCutscene(cutscene));
+
+  let workScenes = state.multiSel.scenes.slice();
+  let workKfs = state.multiSel.kfs.slice();
+  let anchorScene: string | null = (anchorKind === 'scene') ? (anchor as string) : null;
+  let anchorKf: (MultiSelKfId & { t?: number }) | null =
+    (anchorKind === 'kf') ? (anchor as MultiSelKfId & { t?: number }) : null;
+
+  if (alt) {
+    // 2. Clonar scenes primero, kfs sueltos después.
+    const newSceneIds: string[] = [];
+    const idMap = new Map<string, string>();
+    for (const sceneId of workScenes) {
+      const sc = (cutscene.scenes || []).find(s => s.id === sceneId);
+      if (!sc) continue;
+      const clone = cloneScene(cutscene, sc, sc.tStart);
+      newSceneIds.push(clone.id);
+      idMap.set(sceneId, clone.id);
+    }
+
+    const newKfs: MultiSelKfId[] = [];
+    for (const kfId of workKfs) {
+      let arr: any[] | null | undefined = null;
+      if (kfId.kind === 'camera') arr = cutscene.camera?.keyframes;
+      else if (kfId.kind === 'walls') arr = cutscene.walls?.keyframes;
+      else if (kfId.kind === 'fx') {
+        const ent = cutscene.fx?.entities?.[kfId.fxEntityIdx];
+        arr = ent?.keyframes;
+      } else if (kfId.kind === 'agent') {
+        const tr = cutscene.tracks?.[kfId.trackIdx];
+        arr = tr?.keyframes;
+      }
+      const orig = arr && arr[kfId.kfIdx];
+      if (!orig || !arr) continue;
+      if (orig.sceneId && idMap.has(orig.sceneId)) {
+        // El plano padre fue clonado; el clon ya fue creado por cloneScene.
+        const newSceneId = idMap.get(orig.sceneId)!;
+        let cloneIdx = -1;
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (arr[i].sceneId === newSceneId && Math.abs(arr[i].t - orig.t) < 0.0001) {
+            cloneIdx = i;
+            break;
+          }
+        }
+        if (cloneIdx >= 0) newKfs.push({ ...kfId, kfIdx: cloneIdx });
+      } else {
+        // kf suelto: clonar en sitio (shallow).
+        const cloneKf = {
+          ...orig,
+          position: orig.position ? { ...orig.position } : orig.position,
+          target: orig.target ? { ...orig.target } : orig.target,
+          hiddenIds: orig.hiddenIds ? [...orig.hiddenIds] : orig.hiddenIds,
+        };
+        arr.push(cloneKf);
+        newKfs.push({ ...kfId, kfIdx: arr.length - 1 });
+      }
+    }
+
+    workScenes = newSceneIds;
+    workKfs = newKfs;
+    state.multiSel.scenes = newSceneIds;
+    state.multiSel.kfs = newKfs;
+    if (anchorKind === 'scene' && typeof anchor === 'string') {
+      anchorScene = idMap.get(anchor) || anchor;
+    }
+  }
+
+  // 3. Build initial con refs directas a kfs (sobreviven a re-orderings).
+  const initial: GroupDragInitial = {
+    scenes: workScenes.map(id => {
+      const sc = (cutscene.scenes || []).find(s => s.id === id);
+      return { id, tStart: sc ? sc.tStart : 0 };
+    }),
+    kfs: workKfs.map((kfId): { id: MultiSelKfId; kfRef: any; t: number } => {
+      let arr: any[] | null | undefined = null;
+      if (kfId.kind === 'camera') arr = cutscene.camera?.keyframes;
+      else if (kfId.kind === 'walls') arr = cutscene.walls?.keyframes;
+      else if (kfId.kind === 'fx') {
+        const ent = cutscene.fx?.entities?.[kfId.fxEntityIdx];
+        arr = ent?.keyframes;
+      } else if (kfId.kind === 'agent') {
+        const tr = cutscene.tracks?.[kfId.trackIdx];
+        arr = tr?.keyframes;
+      }
+      const k = arr && arr[kfId.kfIdx];
+      return { id: kfId, kfRef: k, t: k ? k.t : 0 };
+    }).filter(x => x.kfRef),
+  };
+
+  // 4. Set group drag state.
+  state.groupDrag = {
+    startX,
+    anchorKind,
+    anchorScene,
+    anchorKf,
+    initial,
+    baseline,
+    moved: false,
+    cloning: !!alt,
+  };
 }

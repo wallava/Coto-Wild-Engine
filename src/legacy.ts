@@ -158,6 +158,7 @@ import {
   multiSelResolveKfs as editorMultiSelResolveKfs,
   updateLassoBox as editorUpdateLassoBox,
   computeLassoSelection as editorComputeLassoSelection,
+  startGroupDrag as editorStartGroupDrag,
 } from './editor/multi-sel';
 import {
   SCENE_SNAP_THRESHOLD as sceneSnapThreshold,
@@ -3366,94 +3367,7 @@ import { formatRelTime } from './utils/format';
 
   // ── Group drag: arrastra todos los items multi-seleccionados juntos ──
   function ceStartGroupDrag(anchor, anchorKind, startX, alt) {
-    const baseline = JSON.stringify(ceSerializeCutscene());
-    let workScenes = ceState.multiSel.scenes.slice();
-    let workKfs = ceState.multiSel.kfs.slice();
-    let anchorScene = (anchorKind === 'scene') ? anchor : null;
-    let anchorKf = (anchorKind === 'kf') ? anchor : null;
-    if (alt) {
-      // Clonar todo el grupo. Los planos clonan sus kfs vinculados;
-      // mapeamos los ids viejos a los clones para mantener la selección.
-      const newSceneIds = [];
-      const idMap = new Map();
-      for (const sceneId of workScenes) {
-        const sc = (ceState.cutscene.scenes || []).find(s => s.id === sceneId);
-        if (!sc) continue;
-        const clone = ceCloneScene(sc, sc.tStart);
-        newSceneIds.push(clone.id);
-        idMap.set(sceneId, clone.id);
-      }
-      // Kfs sueltos (los que pertenecen a planos clonados ya están duplicados)
-      const newKfs = [];
-      for (const kfId of workKfs) {
-        let arr = null;
-        if (kfId.kind === 'camera') arr = ceState.cutscene.camera.keyframes;
-        else if (kfId.kind === 'walls') arr = ceState.cutscene.walls.keyframes;
-        else if (kfId.kind === 'fx') {
-          const ent = ceState.cutscene.fx.entities[kfId.fxEntityIdx];
-          arr = ent && ent.keyframes;
-        } else if (kfId.kind === 'agent') {
-          const tr = ceState.cutscene.tracks[kfId.trackIdx];
-          arr = tr && tr.keyframes;
-        }
-        const orig = arr && arr[kfId.kfIdx];
-        if (!orig) continue;
-        if (orig.sceneId && idMap.has(orig.sceneId)) {
-          // El plano padre fue clonado; el clon ya fue creado por ceCloneScene
-          const newSceneId = idMap.get(orig.sceneId);
-          let cloneIdx = -1;
-          for (let i = arr.length - 1; i >= 0; i--) {
-            if (arr[i].sceneId === newSceneId && Math.abs(arr[i].t - orig.t) < 0.0001) {
-              cloneIdx = i; break;
-            }
-          }
-          if (cloneIdx >= 0) newKfs.push({ ...kfId, kfIdx: cloneIdx });
-        } else {
-          // kf suelto: clonar en sitio
-          const cloneKf = {
-            ...orig,
-            position: orig.position ? { ...orig.position } : orig.position,
-            target: orig.target ? { ...orig.target } : orig.target,
-            hiddenIds: orig.hiddenIds ? [...orig.hiddenIds] : orig.hiddenIds,
-          };
-          arr.push(cloneKf);
-          newKfs.push({ ...kfId, kfIdx: arr.length - 1 });
-        }
-      }
-      workScenes = newSceneIds;
-      workKfs = newKfs;
-      ceState.multiSel.scenes = newSceneIds;
-      ceState.multiSel.kfs = newKfs;
-      if (anchorKind === 'scene') anchorScene = idMap.get(anchor) || anchor;
-    }
-    const initial = {
-      scenes: workScenes.map(id => {
-        const sc = (ceState.cutscene.scenes || []).find(s => s.id === id);
-        return { id, tStart: sc ? sc.tStart : 0 };
-      }),
-      // Guardamos referencias directas a los kfs (no índices), así sobrevive
-      // a reordenaciones del array.
-      kfs: workKfs.map(kfId => {
-        let arr = null;
-        if (kfId.kind === 'camera') arr = ceState.cutscene.camera.keyframes;
-        else if (kfId.kind === 'walls') arr = ceState.cutscene.walls && ceState.cutscene.walls.keyframes;
-        else if (kfId.kind === 'fx') {
-          const ent = ceState.cutscene.fx.entities[kfId.fxEntityIdx];
-          arr = ent && ent.keyframes;
-        } else if (kfId.kind === 'agent') {
-          const tr = ceState.cutscene.tracks[kfId.trackIdx];
-          arr = tr && tr.keyframes;
-        }
-        const k = arr && arr[kfId.kfIdx];
-        return { id: kfId, kfRef: k, t: k ? k.t : 0 };
-      }).filter(x => x.kfRef),    // descartar kfs no encontrados
-    };
-    ceState.groupDrag = {
-      startX,
-      anchorKind, anchorScene, anchorKf,
-      initial, baseline, moved: false,
-      cloning: !!alt,
-    };
+    editorStartGroupDrag(ceState, ceState.cutscene, anchor, anchorKind, startX, alt);
     ceRenderTracks();
   }
 
