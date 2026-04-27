@@ -66,6 +66,85 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 05:44 - Fase 2 cutscene MODO NOCTURNO: chunks 2-5 autónomos
+
+**Modo**: NOCTURNO autónomo. Pablo activó (CLAUDE.md sección "Modo nocturno"). Reglas:
+- 1 review Codex por plan, no rounds.
+- NO pedir confirmación entre chunks.
+- bypass mode + python3/grep/sed/awk allowlisted.
+- Si tokens bajos: ScheduleWakeup 7200s.
+
+**Estado actual repo**:
+- legacy.ts: 6798 líneas
+- cutscene/ chunk 1 hecho: model, scenes, inheritance, keyframes, camera, walls
+- Último commit: `aa57502 Docs: cierre sesión cutscene chunk 1`
+
+**Plan ejecutivo nocturno** (5 waves secuenciales):
+
+### Wave N1: persistence + undo split
+- Funciones: ceSerializeCutscene, ceSnapshot, ceUndo, ceRedo, ceApplyCutsceneData (CRITICAL: split en normalize + apply + refresh per Codex review previo), ceSaveCurrent, ceLoadByName, ceNewCutscene, ceDeleteCurrent, ceRefreshSavedSelect
+- Destinos: src/editor/undo.ts (snapshots), src/editor/persistence.ts (UI save/load), src/cutscene/persistence.ts (extender)
+- Riesgo medio: ceApplyCutsceneData mezcla 5 responsabilidades
+
+### Wave N2: runtime ceUpdate split
+- Funciones: ceUpdate (split por subsistema: camera eval, walls eval, agents eval, fx eval), isCameraLocked, isCutsceneControlled, applyPoseToCinematicCamera
+- Destino: src/cutscene/runtime.ts
+- Riesgo bajo: lectura sin mutar global (excepto agent positions controlled)
+
+### Wave N3: timeline rendering DOM
+- Funciones: ceRenderRuler, ceRenderTracks, ceTimeToPixel, cePixelToTime, ceTrackAreaWidth, ceRulerWidth, ceClampScroll, ceUpdateZoomIndicator, ceUpdatePlayheadPosition, ceFormatTime
+- Destino: src/editor/timeline.ts + src/editor/tracks/* (5 sub-tracks)
+- Riesgo medio: DOM heavy, dataset contract con handlers
+
+### Wave N4: toolbar + POV + gizmo editor wrapper
+- Funciones: ceUpdateToolbarFields, ceRefreshParentSelect, ceUpdateTimeDisplay, ceUpdatePlayButton, ceUpdateDeleteBtn, ceRefreshAgentSelect, ceIsCutsceneAgent, ceSyncSnapBtn, ceSyncLensUI, cePreviewMode, showPovControls, hidePovControls, updatePovOverlayTime, updatePovFrame, ceScrubFromEvent, buildCameraGizmo, updateCameraGizmo, ceResetCameraGizmo, ceSetCameraLens
+- Destinos: src/editor/toolbar.ts, src/editor/pov.ts, src/editor/gizmo.ts
+- Riesgo bajo: UI periférica
+
+### Wave N5 (CRITICAL último): lifecycle + FX + multi-sel + drag/snap
+- ceOpen, ceClose: muta agents global (riesgo más alto)
+- FX system: singleton mutable
+- Multi-select + lasso, drag/snap ops
+- Destinos: src/editor/editor.ts, src/cutscene/runtime.ts, src/cutscene/fx.ts, src/editor/multi-sel.ts, src/editor/scene-drag.ts
+- Riesgo alto. Si tsc falla, NO commit, escalar a Pablo.
+
+**Diferido sesión futura humana**:
+- ceInsertCutAt (depende de ceSnapshot/ceRenderTracks ahora extraídos — podría hacerse en Wave N5 si todo OK)
+- ceApplyWallState, ceRestoreAllWalls, ceToggleElementAtPlayhead (visual apply)
+- Mouse handlers globales (gran refactor)
+- Animate loop + boot → main.ts
+- buildScene loop + corner posts
+- applyWorld agents restoration
+
+**Review loop**:
+- **Round 1 por wave**: Codex adversarial-review del plan ejecucional de cada wave individual.
+
+**Tasks**:
+
+### Estado al reiniciar Claude (05:51)
+- Codex review único completado (task-mogyc6gt-c0t0cx, 1m 22s).
+- Plan ajustado por review: orden A→B→C(toolbar/format)→D(N2 runtime)→E(POV+gizmo)→F(N5a FX)→G(N5b multi-sel)→H(N5c drag/snap)→I(N5d lifecycle)→J(N5e ceInsertCutAt opcional). 10 waves total.
+- Decisiones aceptadas del review:
+  - N1 split fino: 5 hooks (normalize + setCutsceneData + replaceAgents + refreshGizmo + refreshEditor) en lugar de 3.
+  - N3 timeline render antes de N2 runtime (no bloquea).
+  - N2 NO es bajo riesgo — preservar orden per-frame exacto.
+  - N5 partido en 5 sub-waves (N5a-e).
+  - ceComputeWallStateAt acepta scenes precomputado.
+  - _activeFxInstances NO singleton de módulo.
+- Wave A lanzada: task-mogykkcq-mhmr7k (corriendo en background, sobrevive reinicio Claude). Plan: src/editor/undo.ts + src/editor/persistence.ts + extender src/cutscene/persistence.ts. Split ceApplyCutsceneData en 5 funciones.
+
+**INSTRUCCIONES REINICIO** (para sesión nueva Claude que lea esto):
+1. Bypass mode debe estar activo (Pablo debe verificar settings.local.json tiene `"defaultMode": "bypassPermissions"` — fue activado pero settings local pudo revertir).
+2. Verificar status Wave A: `node "/Users/juanpablobermeo/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs" status --all --json | jq '.latestFinished, .running'`
+3. Si Wave A done: sacar resultado, validar tsc, commit, lanzar Wave B.
+4. Continuar A→J sin pedir confirmación a Pablo.
+5. Cada wave tiene su propio commit. Logging exhaustivo en WORK_LOG (orden cronológico inverso).
+6. Si tsc falla: NO commit, ScheduleWakeup 7200s con prompt "investigar fallo wave X".
+7. Si tokens críticos: ScheduleWakeup 7200s.
+8. Para parsear JSON usar jq, NO python3 (todavía pide permiso).
+
+---
+
 ## 2026-04-27 05:07 - Fase 2 migración: cutscene editor (chunk 1, modelo puro)
 
 **Plan inicial**: atacar el editor de cutscenes (~5000 líneas, ~104 funciones) siguiendo el plan en `docs/CUTSCENE_EXTRACT_PLAN.md`. Pablo confirmó verificación visual de cierre Fase 2 anterior — todo anda bien.
