@@ -99,12 +99,19 @@ import {
   clearSelectionHighlight,
 } from './engine/selection-highlight';
 import {
+  clearWallPreviews,
+  clearWallHover,
+  showWallPreview as engineShowWallPreview,
+  showWallHover,
+} from './engine/wall-preview-render';
+import {
   getRaycaster,
   setRaycasterFromEvent,
   getCellFromEvent,
   getFloorCellFromEvent,
   getWorldPointFromEvent,
   getPropFromEvent,
+  getFloorOrWallFaceFromEvent,
   setCanvasGetter,
   setCameraGetter,
 } from './engine/raycaster';
@@ -828,39 +835,18 @@ import { formatRelTime } from './utils/format';
   // qué se pinta (no proyectamos al piso porque eso falla cuando hay paredes
   // altas, muebles, o cuadros que se interponen visualmente).
   function paintAtEvent(event) {
-    setRaycasterFromEvent(event);
-    const targets = sceneObjects.filter(o =>
-      o.isMesh && (o.userData.floorTile || o.userData.wallFace)
-    );
-    const hits = _raycaster.intersectObjects(targets, false);
-    if (hits.length === 0) return;
-    const hit = hits[0];
-    const obj = hit.object;
-    let key = null;
-    if (obj.userData.floorTile) {
-      const { cx, cy } = obj.userData.floorTile;
-      key = `f:${cx},${cy}`;
+    const target = getFloorOrWallFaceFromEvent(event);
+    if (!target) return;
+    if (target.kind === 'floor') {
+      const key = `f:${target.cx},${target.cy}`;
       if (key === paintLastKey) return;
       paintLastKey = key;
-      paintFloorTile(cx, cy);
-      return;
-    }
-    if (obj.userData.wallFace) {
-      const wf = obj.userData.wallFace;
-      const matIdx = hit.face ? hit.face.materialIndex : -1;
-      let side = null;
-      if (wf.type === 'wallN') {
-        if (matIdx === 4) side = 'S';
-        else if (matIdx === 5) side = 'N';
-      } else if (wf.type === 'wallW') {
-        if (matIdx === 0) side = 'E';
-        else if (matIdx === 1) side = 'W';
-      }
-      if (!side) return;
-      key = `w:${wf.type},${wf.cx},${wf.cy},${side}`;
+      paintFloorTile(target.cx, target.cy);
+    } else {
+      const key = `w:${target.type},${target.cx},${target.cy},${target.side}`;
       if (key === paintLastKey) return;
       paintLastKey = key;
-      paintWallFace({ type: wf.type, cx: wf.cx, cy: wf.cy, side });
+      paintWallFace({ type: target.type, cx: target.cx, cy: target.cy, side: target.side });
     }
   }
 
@@ -937,46 +923,23 @@ import { formatRelTime } from './utils/format';
       return;
     }
     if (!event) { clearPaintPreview(); return; }
-    setRaycasterFromEvent(event);
-    const targets = sceneObjects.filter(o =>
-      o.isMesh && (o.userData.floorTile || o.userData.wallFace)
-    );
-    const hits = _raycaster.intersectObjects(targets, false);
-    if (hits.length === 0) { clearPaintPreview(); return; }
-    const hit = hits[0];
-    const obj = hit.object;
+    const hit = getFloorOrWallFaceFromEvent(event);
+    if (!hit) { clearPaintPreview(); return; }
     const shift = paintShiftHeld;
-    let target = null;
-    if (obj.userData.floorTile) {
-      const { cx, cy } = obj.userData.floorTile;
-      target = { kind: 'floor', cx, cy, shift, color: paintColor };
-    } else if (obj.userData.wallFace) {
-      const wf = obj.userData.wallFace;
-      const matIdx = hit.face ? hit.face.materialIndex : -1;
-      let side = null;
-      if (wf.type === 'wallN') {
-        if (matIdx === 4) side = 'S';
-        else if (matIdx === 5) side = 'N';
-      } else if (wf.type === 'wallW') {
-        if (matIdx === 0) side = 'E';
-        else if (matIdx === 1) side = 'W';
-      }
-      if (side) target = { kind: 'wall', type: wf.type, cx: wf.cx, cy: wf.cy, side, shift, color: paintColor };
-    }
-    const newKey = target ? JSON.stringify(target) : null;
+    const target = { ...hit, shift, color: paintColor };
+    const newKey = JSON.stringify(target);
     if (newKey === paintPreviewKey) return;
     paintPreviewKey = newKey;
     clearPaintPreview();
-    paintPreviewKey = newKey;   // re-set tras clearPaintPreview que lo nullea
-    if (!target) return;
+    paintPreviewKey = newKey;
     if (target.kind === 'floor') {
-      if (target.shift) {
+      if (shift) {
         for (const c of computeFloodFillFloor(target.cx, target.cy)) addPaintPreviewTile(c.cx, c.cy);
       } else {
         addPaintPreviewTile(target.cx, target.cy);
       }
     } else {
-      if (target.shift) {
+      if (shift) {
         const start = getAdjacentCell(target.type, target.cx, target.cy, target.side);
         for (const f of computeFloodFillRoomFaces(start.cx, start.cy)) {
           addPaintPreviewWallFace(f.type, f.cx, f.cy, f.side);
@@ -1040,65 +1003,27 @@ import { formatRelTime } from './utils/format';
 
   // canPaintZoneCell ahora en src/engine/zone-config.ts.
   function floodFillAtEvent(event) {
-    setRaycasterFromEvent(event);
-    const targets = sceneObjects.filter(o =>
-      o.isMesh && (o.userData.floorTile || o.userData.wallFace)
-    );
-    const hits = _raycaster.intersectObjects(targets, false);
-    if (hits.length === 0) return;
-    const hit = hits[0];
-    const obj = hit.object;
-    if (obj.userData.floorTile) {
-      const { cx, cy } = obj.userData.floorTile;
-      floodFillFloor(cx, cy);
-      return;
-    }
-    if (obj.userData.wallFace) {
-      const wf = obj.userData.wallFace;
-      const matIdx = hit.face ? hit.face.materialIndex : -1;
-      let side = null;
-      if (wf.type === 'wallN') {
-        if (matIdx === 4) side = 'S';
-        else if (matIdx === 5) side = 'N';
-      } else if (wf.type === 'wallW') {
-        if (matIdx === 0) side = 'E';
-        else if (matIdx === 1) side = 'W';
-      }
-      if (!side) return;
+    const target = getFloorOrWallFaceFromEvent(event);
+    if (!target) return;
+    if (target.kind === 'floor') {
+      floodFillFloor(target.cx, target.cy);
+    } else {
       // Determinar la celda adyacente a esa cara (la que está "del lado pintado")
-      let startCx, startCy;
-      if (side === 'S')      { startCx = wf.cx;     startCy = wf.cy; }
-      else if (side === 'N') { startCx = wf.cx;     startCy = wf.cy - 1; }
-      else if (side === 'E') { startCx = wf.cx;     startCy = wf.cy; }
-      else                   { startCx = wf.cx - 1; startCy = wf.cy; }
-      floodFillRoomWalls(startCx, startCy);
+      const start = getAdjacentCell(target.type, target.cx, target.cy, target.side);
+      floodFillRoomWalls(start.cx, start.cy);
     }
   }
   let wallDragStart = null;   // {x, z} en world abs (sin centrar)
   let wallDragLast = null;
   let wallDragAxis = null;    // 'h' (horizontal/wallN) | 'v' (vertical/wallW) | null hasta primer movimiento
   let wallDragOffAxis = false; // cursor se desvió del eje fijado → mostrar rojo, no construir
-  let wallPreviewMeshes = [];
-  let wallHoverMesh = null;
+  // wallPreviewMeshes + wallHoverMesh ahora en src/engine/wall-preview-render.ts.
 
   // getWorldPointFromEvent ahora en src/engine/raycaster.ts.
 
   // getNearestEdgeFromPoint ahora en src/engine/wall-queries.ts.
 
-  // ── Cara de pared más cercana donde se puede colocar un cuadro ──
-  // Itera sobre las caras de paredes existentes en celdas vecinas, mide la
-  // distancia del cursor al rectángulo de cada cara (en el plano del piso),
-  // y devuelve la más cercana donde el cuadro sería válido (existe pared y
-  // hay habitación del lado correspondiente para verlo).
-  //
-  // Devuelve {side: 'N'|'S'|'W'|'E', cx, cy} o null si no hay nada cerca.
-  // La convención de side es la misma que en canPlaceProp y getWallPropBounds:
-  //   side='N' = cara norte de wallN[cy][cx], visible desde celda al norte (cy-1).
-  //   side='S' = cara sur de wallN[cy][cx], visible desde celda al sur (cy).
-  //   side='W' = cara oeste de wallW[cy][cx], visible desde celda al oeste (cx-1).
-  //   side='E' = cara este de wallW[cy][cx], visible desde celda al este (cx).
-  // findNearestPlaceableWallFace + findNearestWallSegment ahora en
-  // src/engine/wall-queries.ts.
+  // findNearestPlaceableWallFace + findNearestWallSegment ahora en src/engine/wall-queries.ts.
 
   // Calcula el path actual de paredes según start, end y axis fijado.
   // Si wallDragAxis === null y el delta total es muy chico, devuelve solo
@@ -1166,90 +1091,11 @@ import { formatRelTime } from './utils/format';
     }
   }
 
-  function makeWallPreviewBox(wall, color, opacity) {
-    let xmin, xmax, ymin, ymax;
-    if (wall.type === 'wallN') {
-      xmin = wall.cx * CELL;
-      xmax = (wall.cx + 1) * CELL;
-      ymin = wall.cy * CELL - halfT;
-      ymax = wall.cy * CELL + halfT;
-    } else {
-      xmin = wall.cx * CELL - halfT;
-      xmax = wall.cx * CELL + halfT;
-      ymin = wall.cy * CELL;
-      ymax = (wall.cy + 1) * CELL;
-    }
-    const w = xmax - xmin, d = ymax - ymin, h = WALL_H_UP;
-    const geo = new THREE.BoxGeometry(w, h, d);
-    const mat = new THREE.MeshBasicMaterial({
-      color, transparent: true, opacity, depthTest: false
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 990;
-    mesh.position.set(
-      (xmin + xmax) / 2 - centerX,
-      h / 2,
-      (ymin + ymax) / 2 - centerZ
-    );
-    return mesh;
-  }
-
-  function clearWallPreviews() {
-    for (const m of wallPreviewMeshes) {
-      scene.remove(m); m.geometry.dispose(); m.material.dispose();
-    }
-    wallPreviewMeshes = [];
-  }
-
-  function clearWallHover() {
-    if (!wallHoverMesh) return;
-    scene.remove(wallHoverMesh);
-    wallHoverMesh.geometry.dispose();
-    wallHoverMesh.material.dispose();
-    wallHoverMesh = null;
-  }
-
-  // pathFirstExists + pathBlocksOnFurniture ahora en src/engine/wall-queries.ts.
-
+  // makeWallPreviewBox + clearWallPreviews + clearWallHover + showWallHover
+  // ahora en src/engine/wall-preview-render.ts. Wrapper local de showWallPreview
+  // pasa buildWallStyle (que sigue en legacy).
   function showWallPreview(path, isErase, isInvalid) {
-    clearWallPreviews();
-    const colorBuild   = 0x60ff60;     // verde: construir nuevo
-    const colorConvert = 0xffd060;     // amarillo: convertir tipo
-    const colorErase   = 0xff6060;     // rojo: borrar
-    const colorInvalid = 0xff2020;
-    const opacity = isInvalid ? 0.4 : 0.55;
-    for (const w of path) {
-      const exists = w.type === 'wallN' ? worldGrid.wallN[w.cy][w.cx] : worldGrid.wallW[w.cy][w.cx];
-      let color;
-      if (isInvalid) {
-        color = colorInvalid;
-      } else if (isErase) {
-        if (!exists) continue;        // borrar: solo highlight las que existen
-        color = colorErase;
-      } else {
-        // Build/convert: verde si nueva, amarillo si convierte
-        if (exists) {
-          const currentStyle = w.type === 'wallN'
-            ? worldGrid.wallNStyle[w.cy][w.cx]
-            : worldGrid.wallWStyle[w.cy][w.cx];
-          if (currentStyle === buildWallStyle) continue;   // ya es del style buscado
-          color = colorConvert;
-        } else {
-          color = colorBuild;
-        }
-      }
-      const m = makeWallPreviewBox(w, color, opacity);
-      scene.add(m);
-      wallPreviewMeshes.push(m);
-    }
-  }
-
-  function showWallHover(p) {
-    clearWallHover();
-    const e = getNearestEdgeFromPoint(p);
-    if (!e) return;
-    wallHoverMesh = makeWallPreviewBox(e, 0xffff60, 0.4);
-    scene.add(wallHoverMesh);
+    engineShowWallPreview(path, isErase, isInvalid, buildWallStyle);
   }
 
   function applyWallPath(path) {

@@ -89,3 +89,46 @@ export function getPropFromEvent(event: { clientX: number; clientY: number }): u
   }
   return null;
 }
+
+// Raycast contra tiles del piso + caras de paredes. Devuelve el primer hit
+// con su semántica (floor vs wall face + side derivado del materialIndex).
+// Usado por paintAtEvent + floodFillAtEvent.
+//   side='N' = cara norte de wallN (matIdx=5)
+//   side='S' = cara sur de wallN (matIdx=4)
+//   side='W' = cara oeste de wallW (matIdx=1)
+//   side='E' = cara este de wallW (matIdx=0)
+export type PaintTarget =
+  | { kind: 'floor'; cx: number; cy: number }
+  | { kind: 'wall'; type: 'wallN' | 'wallW'; cx: number; cy: number; side: 'N' | 'S' | 'E' | 'W' };
+
+export function getFloorOrWallFaceFromEvent(
+  event: { clientX: number; clientY: number },
+): PaintTarget | null {
+  setRaycasterFromEvent(event);
+  const targets = getSceneObjects().filter(
+    (o) => (o as THREE.Mesh).isMesh && (o.userData['floorTile'] || o.userData['wallFace']),
+  );
+  const hits = _raycaster.intersectObjects(targets, false);
+  if (hits.length === 0) return null;
+  const hit = hits[0]!;
+  const obj = hit.object;
+  if (obj.userData['floorTile']) {
+    const ft = obj.userData['floorTile'] as { cx: number; cy: number };
+    return { kind: 'floor', cx: ft.cx, cy: ft.cy };
+  }
+  if (obj.userData['wallFace']) {
+    const wf = obj.userData['wallFace'] as { type: 'wallN' | 'wallW'; cx: number; cy: number };
+    const matIdx = hit.face ? hit.face.materialIndex : -1;
+    let side: 'N' | 'S' | 'E' | 'W' | null = null;
+    if (wf.type === 'wallN') {
+      if (matIdx === 4) side = 'S';
+      else if (matIdx === 5) side = 'N';
+    } else if (wf.type === 'wallW') {
+      if (matIdx === 0) side = 'E';
+      else if (matIdx === 1) side = 'W';
+    }
+    if (!side) return null;
+    return { kind: 'wall', type: wf.type, cx: wf.cx, cy: wf.cy, side };
+  }
+  return null;
+}
