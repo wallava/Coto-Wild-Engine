@@ -167,6 +167,9 @@ import {
   moveSceneByDt as sceneMoveByDt,
   resizeSceneRight as sceneResizeRight,
   resizeSceneLeft as sceneResizeLeft,
+  cloneScene as sceneCloneOp,
+  deleteSceneAndKfs as sceneDeleteAndKfs,
+  applyGroupDrag as sceneApplyGroupDrag,
 } from './cutscene/scene-ops';
 import {
   backupAndRemoveWorldAgents as lifecycleBackupAgents,
@@ -3473,29 +3476,10 @@ import { formatRelTime } from './utils/format';
     ceRenderTracks();
   }
 
-  // Aplica delta dt a todos los items del grupo (relativo al estado inicial)
   function ceApplyGroupDrag(dt) {
     const gd = ceState.groupDrag;
     if (!gd) return;
-    // Mover planos
-    for (const initSc of gd.initial.scenes) {
-      const sc = (ceState.cutscene.scenes || []).find(s => s.id === initSc.id);
-      if (!sc) continue;
-      const dur = sc.tEnd - sc.tStart;
-      const targetStart = initSc.tStart + dt;
-      const realDt = targetStart - sc.tStart;
-      if (Math.abs(realDt) < 0.001) continue;
-      ceShiftKeyframesBySceneId(sc.id, realDt);
-      sc.tStart = targetStart;
-      sc.tEnd = targetStart + dur;
-    }
-    // Mover kfs sueltos (los que NO pertenecen a planos del grupo - ya se movieron con el plano)
-    const groupSceneIds = new Set(gd.initial.scenes.map(s => s.id));
-    for (const initK of gd.initial.kfs) {
-      if (!initK.kfRef) continue;
-      if (initK.kfRef.sceneId && groupSceneIds.has(initK.kfRef.sceneId)) continue;
-      initK.kfRef.t = initK.t + dt;
-    }
+    sceneApplyGroupDrag(ceState.cutscene, gd, dt);
   }
 
   // ── Lasso: caja visual + cálculo de items — wrappers a src/editor/multi-sel.ts ──
@@ -3505,99 +3489,11 @@ import { formatRelTime } from './utils/format';
   }
 
   function ceCloneScene(scene, tStartNew = null) {
-    const newId = ceNewSceneId();
-    const dur = scene.tEnd - scene.tStart;
-    const newTStart = (tStartNew !== null) ? tStartNew : scene.tStart;
-    const newScene = {
-      id: newId,
-      tStart: newTStart,
-      tEnd: newTStart + dur,
-      name: scene.name || '',
-      inheritState: true,
-      escenaRootId: scene.escenaRootId || scene.id,
-    };
-    ceState.cutscene.scenes.push(newScene);
-    const dt = newTStart - scene.tStart;
-    // Cámara
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      const src = cam.keyframes.filter(k => k.sceneId === scene.id);
-      for (const k of src) {
-        cam.keyframes.push({
-          ...k,
-          t: k.t + dt,
-          sceneId: newId,
-          position: k.position ? { ...k.position } : null,
-          target: k.target ? { ...k.target } : null,
-        });
-      }
-      cam.keyframes.sort((a, b) => a.t - b.t);
-    }
-    // Walls
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      const src = ceState.cutscene.walls.keyframes.filter(k => k.sceneId === scene.id);
-      for (const k of src) {
-        ceState.cutscene.walls.keyframes.push({
-          ...k,
-          t: k.t + dt,
-          sceneId: newId,
-          hiddenIds: [...(k.hiddenIds || [])],
-        });
-      }
-      ceState.cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
-    }
-    // FX (cada entidad tiene sus kfs)
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        const src = (ent.keyframes || []).filter(k => k.sceneId === scene.id);
-        for (const k of src) {
-          ent.keyframes.push({
-            ...k,
-            t: k.t + dt,
-            sceneId: newId,
-            target: k.target ? { ...k.target } : null,
-          });
-        }
-        ent.keyframes.sort((a, b) => a.t - b.t);
-      }
-    }
-    // Tracks de agentes
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      const src = (tr.keyframes || []).filter(k => k.sceneId === scene.id);
-      for (const k of src) {
-        tr.keyframes.push({
-          ...k,
-          t: k.t + dt,
-          sceneId: newId,
-        });
-      }
-      tr.keyframes.sort((a, b) => a.t - b.t);
-    }
-    return newScene;
+    return sceneCloneOp(ceState.cutscene, scene, tStartNew);
   }
 
-  // Elimina un plano y todos sus kfs vinculados (usado para revertir un clone
-  // cancelado donde el usuario soltó sin mover).
   function ceDeleteSceneAndKfs(sceneId) {
-    const arr = ceState.cutscene.scenes || [];
-    const idx = arr.findIndex(s => s.id === sceneId);
-    if (idx < 0) return;
-    arr.splice(idx, 1);
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) {
-      cam.keyframes = cam.keyframes.filter(k => k.sceneId !== sceneId);
-    }
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      ceState.cutscene.walls.keyframes = ceState.cutscene.walls.keyframes.filter(k => k.sceneId !== sceneId);
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) ent.keyframes = ent.keyframes.filter(k => k.sceneId !== sceneId);
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) tr.keyframes = tr.keyframes.filter(k => k.sceneId !== sceneId);
-    }
+    sceneDeleteAndKfs(ceState.cutscene, sceneId);
   }
 
   function ceInsertCutAt(t) {

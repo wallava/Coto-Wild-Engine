@@ -109,6 +109,14 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**DIFERIDO CERRADO Wave G group-drag**: cloneScene + deleteSceneAndKfs + applyGroupDrag → `src/cutscene/scene-ops.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `src/cutscene/scene-ops.ts` (extendido +130 LOC), `src/legacy.ts` (4 wrappers reducidos)
+- ceCloneScene 70→3 LOC, ceDeleteSceneAndKfs 22→3 LOC, ceApplyGroupDrag 25→4 LOC.
+- ceStartGroupDrag NO extraído — coordina ceState.multiSel + JSON.stringify(ceSerializeCutscene()) baseline + render. Mantenerlo en legacy queda más simple que parametrizar 4 callbacks. Sigue diferido.
+- Validación: tsc ✅, smoke-test ✅
+
 **TASK Wave J**: ceInsertCutAt → `src/cutscene/cuts.ts`
 - Tipo: CLAUDE
 - Status: ✅ Done

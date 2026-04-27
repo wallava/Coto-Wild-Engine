@@ -12,6 +12,7 @@ import {
   warpKeyframesBySceneId,
   reassignKfsByOwnerToTarget,
 } from './keyframes';
+import { newSceneId } from './scenes';
 import type { Cutscene, Scene } from './model';
 
 export const SCENE_SNAP_THRESHOLD = 0.4;
@@ -233,4 +234,149 @@ export function resizeSceneLeft(
   }
   realSc.tStart = newStart;
   return { changed: true };
+}
+
+/**
+ * Clona un plano completo (incluye sus kfs en camera/walls/fx/tracks).
+ * Devuelve el nuevo plano. Si `tStartNew` se pasa, ese es el nuevo tStart;
+ * los kfs se shift por el delta correspondiente.
+ *
+ * Mutación profunda: además de pushear el plano nuevo, agrega kfs duplicados
+ * a todos los containers relevantes y los re-ordena.
+ */
+export function cloneScene(
+  cutscene: Cutscene,
+  scene: Scene,
+  tStartNew: number | null = null,
+): Scene {
+  const newId = newSceneId();
+  const dur = scene.tEnd - scene.tStart;
+  const newTStart = (tStartNew !== null) ? tStartNew : scene.tStart;
+  const newScene: Scene = {
+    id: newId,
+    tStart: newTStart,
+    tEnd: newTStart + dur,
+    name: scene.name || '',
+    inheritState: true,
+    escenaRootId: scene.escenaRootId || scene.id,
+  };
+  (cutscene.scenes || []).push(newScene);
+  const dt = newTStart - scene.tStart;
+
+  const cam = cutscene.camera;
+  if (cam && cam.keyframes) {
+    const src = cam.keyframes.filter(k => (k as any).sceneId === scene.id);
+    for (const k of src) {
+      cam.keyframes.push({
+        ...(k as any),
+        t: k.t + dt,
+        sceneId: newId,
+        position: (k as any).position ? { ...(k as any).position } : null,
+        target: (k as any).target ? { ...(k as any).target } : null,
+      });
+    }
+    cam.keyframes.sort((a, b) => a.t - b.t);
+  }
+
+  if (cutscene.walls && cutscene.walls.keyframes) {
+    const src = cutscene.walls.keyframes.filter(k => (k as any).sceneId === scene.id);
+    for (const k of src) {
+      cutscene.walls.keyframes.push({
+        ...(k as any),
+        t: k.t + dt,
+        sceneId: newId,
+        hiddenIds: [...((k as any).hiddenIds || [])],
+      });
+    }
+    cutscene.walls.keyframes.sort((a, b) => a.t - b.t);
+  }
+
+  if (cutscene.fx && cutscene.fx.entities) {
+    for (const ent of cutscene.fx.entities) {
+      const src = (ent.keyframes || []).filter(k => (k as any).sceneId === scene.id);
+      for (const k of src) {
+        ent.keyframes.push({
+          ...(k as any),
+          t: k.t + dt,
+          sceneId: newId,
+          target: (k as any).target ? { ...(k as any).target } : null,
+        });
+      }
+      ent.keyframes.sort((a, b) => a.t - b.t);
+    }
+  }
+
+  for (const tr of (cutscene.tracks || [])) {
+    const src = (tr.keyframes || []).filter(k => (k as any).sceneId === scene.id);
+    for (const k of src) {
+      tr.keyframes.push({
+        ...(k as any),
+        t: k.t + dt,
+        sceneId: newId,
+      });
+    }
+    tr.keyframes.sort((a, b) => a.t - b.t);
+  }
+
+  return newScene;
+}
+
+/**
+ * Elimina un plano y todos sus kfs vinculados. Usado para revertir un clone
+ * cancelado donde el usuario soltó sin mover.
+ */
+export function deleteSceneAndKfs(cutscene: Cutscene, sceneId: string): void {
+  const arr = cutscene.scenes || [];
+  const idx = arr.findIndex(s => s.id === sceneId);
+  if (idx < 0) return;
+  arr.splice(idx, 1);
+  const cam = cutscene.camera;
+  if (cam && cam.keyframes) {
+    cam.keyframes = cam.keyframes.filter(k => (k as any).sceneId !== sceneId);
+  }
+  if (cutscene.walls && cutscene.walls.keyframes) {
+    cutscene.walls.keyframes = cutscene.walls.keyframes.filter(k => (k as any).sceneId !== sceneId);
+  }
+  if (cutscene.fx && cutscene.fx.entities) {
+    for (const ent of cutscene.fx.entities) {
+      if (ent.keyframes) ent.keyframes = ent.keyframes.filter(k => (k as any).sceneId !== sceneId);
+    }
+  }
+  for (const tr of (cutscene.tracks || [])) {
+    if (tr.keyframes) tr.keyframes = tr.keyframes.filter(k => (k as any).sceneId !== sceneId);
+  }
+}
+
+type GroupDragInitial = {
+  scenes: Array<{ id: string; tStart: number }>;
+  kfs: Array<{ id: any; kfRef: any; t: number }>;
+};
+
+export type GroupDragState = {
+  initial: GroupDragInitial;
+  // Otros campos los maneja el caller (anchor, baseline, moved, cloning).
+};
+
+/**
+ * Aplica delta `dt` al grupo: shifts planos por dt + sus kfs vinculados,
+ * y kfs sueltos no-vinculados a esos planos. Pure mutation sobre cutscene.
+ */
+export function applyGroupDrag(cutscene: Cutscene, gd: GroupDragState, dt: number): void {
+  for (const initSc of gd.initial.scenes) {
+    const sc = (cutscene.scenes || []).find(s => s.id === initSc.id);
+    if (!sc) continue;
+    const dur = sc.tEnd - sc.tStart;
+    const targetStart = initSc.tStart + dt;
+    const realDt = targetStart - sc.tStart;
+    if (Math.abs(realDt) < 0.001) continue;
+    shiftKeyframesBySceneId(cutscene, sc.id, realDt);
+    sc.tStart = targetStart;
+    sc.tEnd = targetStart + dur;
+  }
+  const groupSceneIds = new Set(gd.initial.scenes.map(s => s.id));
+  for (const initK of gd.initial.kfs) {
+    if (!initK.kfRef) continue;
+    if (initK.kfRef.sceneId && groupSceneIds.has(initK.kfRef.sceneId)) continue;
+    initK.kfRef.t = initK.t + dt;
+  }
 }
