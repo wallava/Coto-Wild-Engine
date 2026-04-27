@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AGENTS.INC v0.3.0 — fase 1.2</title>
+<link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="title">COTO WILD ENGINE</span>
+    <span class="hdr-tag accent">v0.3.0</span>
+    <span class="hdr-tag">fase 1.2 · bulk monolito en legacy.ts</span>
+    <span style="margin-left: auto; font-size: 11px; opacity: 0.6;">THREE + Tone via ES imports · sin tipar</span>
+  </header>
+  <div id="toolbar">
+    <button id="btn-strokes" class="active">Strokes ON</button>
+    <button id="btn-walls">Walls: Up</button>
+    <button id="btn-roof" title="Mostrar/ocultar techo de las habitaciones cerradas">🏠 Techo: Off</button>
+    <button id="btn-reset">Reset cámara</button>
+    <button id="btn-add">+ Agente</button>
+    <button id="btn-pause">Pausa</button>
+    <span style="border-left: 1px solid #5a4f3f; height: 18px; margin: 0 4px;"></span>
+    <button id="btn-add-prop">+ Mueble</button>
+    <button id="btn-rm-prop">- Mueble</button>
+    <button id="btn-mode">Modo: Jugar</button>
+    <button id="btn-build-style">Tipo: Pared</button>
+    <button id="btn-reset-world">Reset Mundo</button>
+    <button id="btn-slots">💾 Slots</button>
+    <button id="btn-rooms">🏠 Habitaciones</button>
+    <button id="btn-speech-test">💬 Test bubble</button>
+    <button id="btn-cutscene">🎬 Cutscenes</button>
+    <span id="agent-count" style="font-size: 11px; opacity: 0.7; margin-left: 8px;">0 agentes</span>
+    <span style="margin-left: auto; font-size: 11px; opacity: 0.6;">,/. rotar • right-drag inclinar • scroll zoom</span>
+  </div>
+  <div id="canvas-container">
+    <div id="cs-fade-overlay"></div>
+    <div id="banner">AGENTS.INC v0.3.0</div>
+    <div id="hud">
+      <strong>,</strong> / <strong>.</strong> rotar cámara<br>
+      <strong>click derecho + drag</strong> rotar/inclinar cámara<br>
+      scroll = zoom<br>
+      <span style="opacity:0.6">─ Modo Mover ─</span><br>
+      click mueble = seleccionar<br>
+      drag mueble = mover<br>
+      <strong>R</strong> = rotar mueble<br>
+      <strong>Delete</strong> = borrar<br>
+      <span style="opacity:0.6">─ Modo Construir ─</span><br>
+      drag sobre piso = línea de pared<br>
+      verde = construir, rojo = eliminar<br>
+      <strong>Esc</strong> = cancelar drag
+    </div>
+    <div id="place-banner">
+      <span id="place-name"></span> — click para colocar, <strong>R</strong> rotar, <strong>Esc</strong> cancelar
+    </div>
+    <div id="catalog">
+      <div id="catalog-header">
+        <span>Catálogo</span>
+        <div>
+          <button id="catalog-random" title="Spawnear aleatorio">🎲</button>
+          <button id="catalog-close" title="Cerrar">✕</button>
+        </div>
+      </div>
+      <div id="catalog-grid"></div>
+    </div>
+    <div id="paint-panel">
+      <div class="paint-row">
+        <span class="paint-label">Color:</span>
+        <button class="paint-swatch" data-color="0xc6bca2" style="background:#c6bca2"></button>
+        <button class="paint-swatch" data-color="0xe8d8b8" style="background:#e8d8b8"></button>
+        <button class="paint-swatch" data-color="0xa0c0e0" style="background:#a0c0e0"></button>
+        <button class="paint-swatch" data-color="0xa0a060" style="background:#a0a060"></button>
+        <button class="paint-swatch" data-color="0xc05050" style="background:#c05050"></button>
+        <button class="paint-swatch" data-color="0x6090c0" style="background:#6090c0"></button>
+        <button class="paint-swatch" data-color="0x404448" style="background:#404448"></button>
+        <button class="paint-swatch" data-color="0xf5f0e8" style="background:#f5f0e8"></button>
+        <input type="color" id="paint-custom" value="#c6bca2" title="Rueda de color">
+        <button id="paint-clear" title="Volver al color por defecto">🧽</button>
+      </div>
+      <div class="paint-hint">Click + drag pinta área. Shift+click pinta toda una habitación / pared continua.</div>
+    </div>
+    <div id="slots-panel">
+      <div class="slots-title">💾 Mundos guardados</div>
+      <div class="slot-current-hint">Tus cambios actuales se autoguardan. Guardá un mundo con nombre para conservarlo aparte.</div>
+      <div id="slots-list"></div>
+      <div class="slot-save-row">
+        <input type="text" id="slot-name-input" placeholder="Nombre del mundo..." maxlength="40">
+        <button id="slot-save-btn">Guardar</button>
+      </div>
+    </div>
+    <div id="rooms-panel">
+      <div class="rooms-title">🏠 Habitaciones y zonas</div>
+      <div class="rooms-hint">Cerradas: las detecta el motor con paredes. Abiertas: las pintás vos sobre el piso.</div>
+      <div class="rooms-config-row">
+        <label for="min-cells-input">Mín. celdas para admitir zonas:</label>
+        <input type="number" id="min-cells-input" min="1" max="100" step="1">
+      </div>
+      <div id="rooms-list"></div>
+    </div>
+    <div id="zone-edit-banner">
+      <span>Editando: <strong id="zone-edit-name"></strong></span>
+      <span style="opacity:0.8; font-size:10px;">click+drag agrega · click derecho quita · Esc termina</span>
+      <button id="zone-edit-done">Terminar</button>
+    </div>
+  </div>
+</div>
+<div id="confirm-dialog">
+  <div class="confirm-box">
+    <div class="confirm-msg" id="confirm-msg"></div>
+    <div class="confirm-buttons">
+      <button id="confirm-no">Cancelar</button>
+      <button id="confirm-yes">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="prompt-dialog">
+  <div class="confirm-box">
+    <div class="confirm-msg" id="prompt-msg"></div>
+    <input id="prompt-input" type="text" autocomplete="off">
+    <div class="confirm-buttons">
+      <button id="prompt-no">Cancelar</button>
+      <button id="prompt-yes">Aceptar</button>
+    </div>
+  </div>
+</div>
+
+<div id="pov-frame">
+  <div class="pov-bar pov-bar-top"></div>
+  <div class="pov-bar pov-bar-bottom"></div>
+</div>
+
+<div id="pov-controls">
+  <div class="pov-progress" id="pov-progress">
+    <div class="pov-progress-fill" id="pov-progress-fill"></div>
+  </div>
+  <div class="pov-controls-row">
+    <button id="pov-prev"  class="pov-btn" title="Inicio">⏮</button>
+    <button id="pov-back"  class="pov-btn" title="-1s">⏪</button>
+    <button id="pov-play"  class="pov-btn pov-btn-play" title="Play/Pause">▶</button>
+    <button id="pov-fwd"   class="pov-btn" title="+1s">⏩</button>
+    <button id="pov-next"  class="pov-btn" title="Fin">⏭</button>
+    <span id="pov-time" class="pov-time">00:00.0 / 00:30.0</span>
+    <button id="pov-exit"  class="pov-btn pov-btn-exit" title="Salir POV">✕</button>
+  </div>
+</div>
+
+<div id="fx-placement-hint">📍 Click en el piso para colocar el FX · Esc cancela</div>
+<div id="cs-add-agent-hint">🧠 Click en el piso para crear el agente · Esc cancela</div>
+
+<div id="cutscene-editor">
+  <div class="ce-header">
+    <div class="ce-transport">
+      <button id="ce-rewind"  class="ce-btn ce-btn-icon" title="Inicio">⏮</button>
+      <button id="ce-step-back" class="ce-btn ce-btn-icon" title="−1s">⏪</button>
+      <button id="ce-play"    class="ce-btn ce-btn-play" title="Play / Pause">▶</button>
+      <button id="ce-step-fwd" class="ce-btn ce-btn-icon" title="+1s">⏩</button>
+      <button id="ce-end"     class="ce-btn ce-btn-icon" title="Fin">⏭</button>
+    </div>
+    <div class="ce-time">
+      <span id="ce-time-current">00:00.0</span>
+      <span class="ce-time-sep">/</span>
+      <span id="ce-time-total">00:30.0</span>
+    </div>
+    <button id="ce-pov-toggle" class="ce-btn ce-btn-pov" title="Ver desde cámara cinemática (POV)">👁 POV</button>
+    <button id="ce-preview-btn" class="ce-btn ce-btn-preview" title="Reproducir cutscene en formato cinemático desde el inicio">🎬 Preview</button>
+    <select id="ce-aspect-select" class="ce-select" style="min-width: 100px;" title="Formato de pantalla en POV">
+      <option value="full">☐ Full</option>
+      <option value="16:9">📺 16:9</option>
+      <option value="cinema">🎬 Cinema</option>
+    </select>
+    <div class="ce-save-block">
+      <select id="ce-saved-select" class="ce-select" style="min-width: 140px;" title="Cargar cutscene guardada"></select>
+      <button id="ce-save-btn" class="ce-btn ce-btn-icon" title="Guardar cutscene">💾</button>
+      <button id="ce-new-btn" class="ce-btn ce-btn-icon" title="Nueva cutscene">＋</button>
+      <button id="ce-delete-cs-btn" class="ce-btn ce-btn-icon" title="Borrar cutscene cargada">🗑</button>
+    </div>
+    <button id="ce-close" class="ce-btn ce-btn-close" title="Cerrar editor">✕</button>
+  </div>
+  <div class="ce-toolbar">
+    <label class="ce-label">Agente</label>
+    <select id="ce-agent-select" class="ce-select"></select>
+    <button id="ce-new-agent" class="ce-btn ce-btn-pill" title="Crear un agente propio de esta cutscene" style="background: rgba(120, 200, 255, 0.18); border-color: rgba(120, 200, 255, 0.55); color: rgba(180, 220, 255, 1);">+ Nuevo Agente</button>
+    <label class="ce-label">Tipo</label>
+    <select id="ce-type-select" class="ce-select" style="min-width: 120px;">
+      <option value="move">📍 Move</option>
+      <option value="speak">💬 Speak</option>
+      <option value="animation">✨ Animation</option>
+      <option value="wait">⏸ Wait</option>
+      <option value="camera">📷 Camera</option>
+      <option value="fx">🌀 FX</option>
+      <option value="walls">🧱 Walls</option>
+    </select>
+    <input id="ce-text-input" class="ce-text-input" type="text" placeholder="Texto a decir...">
+    <select id="ce-anim-select" class="ce-select" style="min-width: 110px;">
+      <option value="wave">👋 Wave</option>
+      <option value="excited">⚡ Excited</option>
+      <option value="idle">😴 Idle</option>
+      <option value="spin">🌀 Spin</option>
+    </select>
+    <select id="ce-fx-select" class="ce-select" style="min-width: 110px;">
+      <option value="smoke">💨 Smoke</option>
+      <option value="fire">🔥 Fire</option>
+      <option value="sparks">⭐ Sparks</option>
+      <option value="light">💡 Light</option>
+    </select>
+    <label class="ce-label ce-cut-wrap" id="ce-pin-label">
+      <input id="ce-pin-checkbox" type="checkbox"> 📍 Pin floor
+    </label>
+    <label class="ce-label" id="ce-duration-label">Dur (s)</label>
+    <input id="ce-duration-input" class="ce-text-input" type="number" min="0.1" max="60" step="0.1" value="1.0" style="max-width: 70px;">
+    <label class="ce-label" id="ce-parent-label">Parent</label>
+    <select id="ce-parent-select" class="ce-select" style="min-width: 130px;">
+      <option value="">— sin parent —</option>
+    </select>
+    <label class="ce-label ce-cut-wrap" id="ce-cut-label">
+      <input id="ce-cut-checkbox" type="checkbox"> ✂ Cut
+    </label>
+    <select id="ce-trans-select" class="ce-select" style="min-width: 100px;" title="Transición al cortar">
+      <option value="none">— sin trans —</option>
+      <option value="fade">⚫ Fade</option>
+    </select>
+    <input id="ce-trans-dur" class="ce-text-input" type="number" min="0.1" max="5" step="0.1" value="0.5" style="max-width: 60px;" title="Duración de la transición (s)">
+    <button id="ce-add-kf" class="ce-btn ce-btn-pill">+ Keyframe</button>
+    <button id="ce-new-fx" class="ce-btn ce-btn-pill" style="display: none; background: rgba(255, 128, 72, 0.18); border-color: rgba(255, 128, 72, 0.55); color: rgba(255, 200, 160, 1);">+ Nuevo FX</button>
+    <button id="ce-walls-roof" class="ce-btn ce-btn-pill" style="display: none; background: rgba(180, 140, 90, 0.18); border-color: rgba(180, 140, 90, 0.55); color: rgba(220, 190, 140, 1);">🏠 Toggle techo</button>
+    <button id="ce-walls-restore" class="ce-btn ce-btn-pill" style="display: none; background: rgba(120, 200, 130, 0.18); border-color: rgba(120, 200, 130, 0.55); color: rgba(180, 230, 190, 1);">↺ Restaurar todo</button>
+    <button id="ce-cam-reset" class="ce-btn ce-btn-pill" style="display: none; background: rgba(120, 160, 220, 0.18); border-color: rgba(120, 160, 220, 0.55); color: rgba(180, 210, 240, 1);">↺ Reset cámara</button>
+    <span class="ce-cam-lens-group" id="ce-cam-lens-group" style="display: none; align-items: center; gap: 8px; padding: 4px 10px; background: rgba(120, 160, 220, 0.10); border-radius: 100px; border: 1px solid rgba(120, 160, 220, 0.30);">
+      <span style="color: rgba(180, 210, 240, 0.85); font-size: 11px; letter-spacing: 0.5px;">📷 LENTE</span>
+      <select id="ce-cam-lens-preset" class="ce-input" style="font-size: 11px; padding: 2px 6px;">
+        <option value="24">24mm wide</option>
+        <option value="35">35mm cine</option>
+        <option value="50" selected>50mm normal</option>
+        <option value="85">85mm portrait</option>
+        <option value="135">135mm tele</option>
+        <option value="custom">— custom —</option>
+      </select>
+      <input type="range" id="ce-cam-lens-slider" min="14" max="200" step="1" value="50" style="width: 100px; accent-color: #88a8d8;">
+      <span id="ce-cam-lens-value" style="color: rgba(220, 230, 245, 1); font-size: 11px; font-weight: 600; min-width: 42px; text-align: right;">50mm</span>
+    </span>
+    <span class="ce-spacer"></span>
+    <button id="ce-scissors" class="ce-btn ce-btn-pill" title="Cortar plano" style="background: rgba(220, 200, 100, 0.18); border-color: rgba(220, 200, 100, 0.45); color: rgba(240, 220, 140, 1);">✂</button>
+    <button id="ce-snap-toggle" class="ce-btn ce-btn-pill" title="Snap entre planos (toggle)" style="background: rgba(120, 170, 255, 0.22); border-color: rgba(120, 170, 255, 0.45); color: rgba(180, 210, 255, 1);">🧲 Snap</button>
+    <span id="ce-zoom-indicator" style="font-size: 10.5px; color: rgba(255,255,255,0.55); padding: 4px 10px; background: rgba(255,255,255,0.04); border-radius: 100px; cursor: pointer; user-select: none;" title="Click: reset zoom · Cmd+scroll: zoom · Shift+scroll: pan · 0: reset">🔍 100%</span>
+    <button id="ce-delete-kf" class="ce-btn" disabled style="display: none;">Borrar</button>
+    <span class="ce-hint" id="ce-hint">click en timeline para mover playhead</span>
+  </div>
+  <div class="ce-timeline" id="ce-timeline">
+    <div class="ce-ruler" id="ce-ruler"></div>
+    <div class="ce-tracks" id="ce-tracks"></div>
+    <div class="ce-playhead" id="ce-playhead"></div>
+  </div>
+</div>
+
+<div id="dialogue-panel" class="dialogue-panel hidden">
+  <div class="dialogue-portrait">
+    <canvas id="dialogue-portrait-canvas" width="120" height="120"></canvas>
+  </div>
+  <div class="dialogue-content">
+    <div class="dialogue-name" id="dialogue-name">Nombre</div>
+    <div class="dialogue-text" id="dialogue-text"></div>
+    <div class="dialogue-hint" id="dialogue-hint">▼ click / espacio para continuar</div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
