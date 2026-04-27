@@ -176,6 +176,7 @@ import {
   initCameraGizmoState as lifecycleInitGizmo,
   clearCutsceneAnimCache as lifecycleClearAnimCache,
 } from './editor/lifecycle';
+import { insertCutAt as cutsInsertCutAt } from './cutscene/cuts';
 import {
   hasWallN,
   hasWallW,
@@ -3601,90 +3602,13 @@ import { formatRelTime } from './utils/format';
 
   function ceInsertCutAt(t) {
     ceEnsureScenesInModel();
+    // Pre-check para abortar antes de snapshot (evitar undo entry inútil).
     const sc = ceSceneAt(t);
-    if (!sc) return false;          // t en gap, no hay plano para cortar
-    if (t - sc.tStart < 0.1 || sc.tEnd - t < 0.1) return false;  // muy cerca de borde
-    ceSnapshot();   // undo: snapshot antes del cut
-    // Crear kf de cámara con pose interpolada en t (para no romper continuidad)
-    const cam = ceState.cutscene.camera;
-    const interp = ceInterpCameraPose(t);
-    const existing = cam.keyframes.find(k => Math.abs(k.t - t) < 0.05);
-    if (!existing && interp) {
-      cam.keyframes.push({
-        t, type: 'camera',
-        position: { ...interp.position },
-        target:   { ...interp.target },
-        roll: interp.roll, lens: interp.lens,
-        projection: cam.gizmoProjection || 'perspective',
-        cut: true, transition: 'none', transitionDuration: 0.5,
-      });
-      cam.keyframes.sort((a, b) => a.t - b.t);
-    } else if (existing) {
-      existing.cut = true;
-    }
-    // Dividir el plano: el original se acorta a [tStart, t], se crea uno nuevo [t, tEnd]
-    const oldEnd = sc.tEnd;
-    const oldName = sc.name;
-    const realSc = ceState.cutscene.scenes.find(s => s.id === sc.id);
-    if (realSc) {
-      realSc.tEnd = t;
-      const newScene = {
-        id: ceNewSceneId(),
-        tStart: t,
-        tEnd: oldEnd,
-        name: '',
-        inheritState: true,                       // tijera = continuación narrativa
-        // El plano nuevo pertenece a la MISMA escena que el padre (identidad estable)
-        escenaRootId: realSc.escenaRootId || realSc.id,
-      };
-      ceState.cutscene.scenes.push(newScene);
-      // Reasignar kfs cuyo t cae en la mitad derecha al plano nuevo
-      ceReassignKfsByTime(t, oldEnd, newScene.id);
-      // El kf de cámara que insertamos en t (cut) pertenece al plano NUEVO
-      const cutKf = (ceState.cutscene.camera.keyframes || []).find(k => Math.abs(k.t - t) < 0.05);
-      if (cutKf) cutKf.sceneId = newScene.id;
-      // Para cada track de agente: si tiene un kf de move ANTES de t (sceneId=A)
-      // y otro DESPUÉS de t (sceneId=B), insertar un kf interp en t en cada
-      // mitad para preservar la animación continua a través del cut.
-      for (const tr of (ceState.cutscene.tracks || [])) {
-        const moveKfs = (tr.keyframes || []).filter(k => k.type === 'move').sort((a, b) => a.t - b.t);
-        let prev = null, next = null;
-        for (const k of moveKfs) {
-          if (k.t < t - 0.05) prev = k;
-          else if (k.t > t + 0.05 && !next) next = k;
-        }
-        if (prev && next && prev.sceneId === sc.id && next.sceneId === newScene.id) {
-          // Hay un movimiento que cruza el cut. Interpolar la celda.
-          const lerp = (next.t === prev.t) ? 0 : (t - prev.t) / (next.t - prev.t);
-          const cx = Math.round(prev.cx + (next.cx - prev.cx) * lerp);
-          const cy = Math.round(prev.cy + (next.cy - prev.cy) * lerp);
-          // kf en t-0.001 perteneciente al plano A (cierra animación)
-          tr.keyframes.push({ t: t - 0.001, type: 'move', cx, cy, sceneId: sc.id });
-          // kf en t perteneciente al plano B (arranca con misma posición)
-          tr.keyframes.push({ t: t, type: 'move', cx, cy, sceneId: newScene.id });
-          tr.keyframes.sort((a, b) => a.t - b.t);
-        }
-      }
-      // Para walls: si hay un kf antes y otro después, insertar snapshot interp en t
-      // (sólo en el plano B — el plano A se queda con su último kf antes del cut).
-      const wallsKfs = (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) || [];
-      const sortedW = wallsKfs.slice().sort((a, b) => a.t - b.t);
-      let prevW = null;
-      for (const k of sortedW) {
-        if (k.t <= t + 0.001 && (k.sceneId === sc.id || k.sceneId === newScene.id)) prevW = k;
-        else if (k.t > t) break;
-      }
-      // Si hay estado previo Y el plano nuevo no tiene kf en t, insertarlo
-      if (prevW) {
-        const hasInB = sortedW.some(k => Math.abs(k.t - t) < 0.05 && k.sceneId === newScene.id);
-        if (!hasInB) {
-          wallsKfs.push({ t, hiddenIds: [...(prevW.hiddenIds || [])], sceneId: newScene.id });
-          wallsKfs.sort((a, b) => a.t - b.t);
-        }
-      }
-    }
-    ceRenderTracks();
-    return true;
+    if (!sc || t - sc.tStart < 0.1 || sc.tEnd - t < 0.1) return false;
+    ceSnapshot();
+    const ok = cutsInsertCutAt(ceState.cutscene, t, ceSceneAt);
+    if (ok) ceRenderTracks();
+    return ok;
   }
 
   // Helper: pose interpolada en t (para insertar cuts sin romper animación)

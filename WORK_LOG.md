@@ -109,6 +109,14 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**TASK Wave J**: ceInsertCutAt → `src/cutscene/cuts.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `src/cutscene/cuts.ts` (nuevo, 130 LOC), `src/legacy.ts` (import + wrapper de 7 LOC)
+- ceInsertCutAt reducido de ~85 LOC a 7 LOC en legacy. Modelo entero (split de plano + reasignación de kfs camera/agent/walls a través del cut con interpolación) en módulo puro.
+- Snapshot undo y render quedan en legacy wrapper.
+- Validación: tsc ✅, smoke-test ✅
+
 **TASK Wave I**: lifecycle helpers → `src/editor/lifecycle.ts`
 - Tipo: CLAUDE
 - Status: ✅ Done (parcial — orchestrators ceOpen/ceClose siguen en legacy)
