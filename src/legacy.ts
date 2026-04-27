@@ -117,6 +117,13 @@ import {
   DOOR_PROP_TEMPLATES,
 } from './game/prop-catalog';
 import {
+  AGENT_KITS,
+  BRAIN_FONT_SIZE,
+  ITEM_DEFAULT_SIZE,
+  ITEM_SIZES,
+  getItemSize,
+} from './game/agent-kits';
+import {
   ROOM_KINDS,
   ROOM_REQUIREMENTS,
   checkZoneRequirements,
@@ -154,6 +161,14 @@ import {
   setOnSaveSlot,
 } from './ui/slots-panel';
 import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
+import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
+import { buildFloor } from './engine/floor-render';
+import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
+import {
+  setFloorTileColor,
+  setWallFaceColor,
+  setPaintColorGetter,
+} from './engine/paint';
 import { formatRelTime } from './utils/format';
 // engine/door-anim revertido — door animation in legacy hasta resolver bug
 
@@ -1120,6 +1135,7 @@ import { formatRelTime } from './utils/format';
   // ── Pintura ──
   // paintColor: número (0xRRGGBB) o null. null = "limpiar" (volver al default).
   let paintColor = 0xc6bca2;
+  setPaintColorGetter(() => paintColor);   // engine/paint lee desde acá
   let paintDragging = false;     // mouse down + arrastra para pintar continuo
   let paintLastKey = null;       // cache del último target pintado (evita repetir buildScene)
 
@@ -1166,28 +1182,7 @@ import { formatRelTime } from './utils/format';
     markWorldChanged();
   }
 
-  // Versiones "directas" sin render (para batch en flood fill)
-  function setFloorTileColor(cx, cy) {
-    if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return;
-    if (!worldGrid.floorColors) return;
-    worldGrid.floorColors[cy][cx] = paintColor;
-    eventBus.emit('paintApplied', { kind: 'floor', cx, cy, color: paintColor });
-  }
-  function setWallFaceColor(type, cx, cy, side) {
-    const grid = type === 'wallN' ? worldGrid.wallNColors : worldGrid.wallWColors;
-    if (!grid) return;
-    let entry = grid[cy][cx];
-    if (paintColor === null) {
-      if (entry) {
-        delete entry[side];
-        if (Object.keys(entry).length === 0) grid[cy][cx] = null;
-      }
-    } else {
-      if (!entry) entry = grid[cy][cx] = {};
-      entry[side] = paintColor;
-    }
-    eventBus.emit('paintApplied', { kind: 'wall', type, cx, cy, side, color: paintColor });
-  }
+  // setFloorTileColor + setWallFaceColor ahora en src/engine/paint.ts.
 
   // Raycast directo contra paredes y tiles del piso. El primer hit decide
   // qué se pinta (no proyectamos al piso porque eso falla cuando hay paredes
@@ -2638,101 +2633,9 @@ import { formatRelTime } from './utils/format';
   const agents = [];
   let paused = false;
 
-  // ¿Hay un mueble FLOOR bloqueando esa celda? Las alfombras (rug) y
-  // los cuadros (wall) no bloquean walking.
-  function isBlockedByProp(cx, cy) {
-    for (const p of props) {
-      if ((p.category || 'floor') !== 'floor') continue;
-      if (cx >= p.cx && cx < p.cx + p.w && cy >= p.cy && cy < p.cy + p.d) return true;
-    }
-    return false;
-  }
 
-  // ¿Puede el agente caminar de (cx, cy) a vecino? Bloqueado por wallN/wallW Y muebles.
-  function neighbors(cx, cy) {
-    const result = [];
-    if (cy > 0           && !blocksWallN(cx, cy)     && !isBlockedByProp(cx, cy - 1)) result.push([cx, cy - 1]);
-    if (cy < GRID_H - 1  && !blocksWallN(cx, cy + 1) && !isBlockedByProp(cx, cy + 1)) result.push([cx, cy + 1]);
-    if (cx > 0           && !blocksWallW(cx, cy)     && !isBlockedByProp(cx - 1, cy)) result.push([cx - 1, cy]);
-    if (cx < GRID_W - 1  && !blocksWallW(cx + 1, cy) && !isBlockedByProp(cx + 1, cy)) result.push([cx + 1, cy]);
-    return result;
-  }
-
-  // A* clásico, heurística Manhattan, costo uniforme. Devuelve array de [cx,cy]
-  // sin incluir la posición inicial. Null si no hay path.
-  function findPath(sx, sy, gx, gy) {
-    if (sx === gx && sy === gy) return [];
-    const open = [];
-    const nodes = new Map();   // key "cx,cy" → node
-    const start = { cx: sx, cy: sy, g: 0, h: Math.abs(sx-gx)+Math.abs(sy-gy), parent: null, closed: false };
-    open.push(start);
-    nodes.set(`${sx},${sy}`, start);
-
-    while (open.length) {
-      // pop lowest f
-      let bestIdx = 0;
-      for (let i = 1; i < open.length; i++) {
-        if ((open[i].g + open[i].h) < (open[bestIdx].g + open[bestIdx].h)) bestIdx = i;
-      }
-      const current = open.splice(bestIdx, 1)[0];
-      current.closed = true;
-
-      if (current.cx === gx && current.cy === gy) {
-        const path = [];
-        let n = current;
-        while (n.parent) { path.unshift([n.cx, n.cy]); n = n.parent; }
-        return path;
-      }
-
-      for (const [nx, ny] of neighbors(current.cx, current.cy)) {
-        const nkey = `${nx},${ny}`;
-        const ng = current.g + 1;
-        let node = nodes.get(nkey);
-        if (node) {
-          if (node.closed || node.g <= ng) continue;
-          node.g = ng; node.parent = current;
-        } else {
-          node = { cx: nx, cy: ny, g: ng, h: Math.abs(nx-gx)+Math.abs(ny-gy), parent: current, closed: false };
-          nodes.set(nkey, node);
-          open.push(node);
-        }
-      }
-    }
-    return null;
-  }
-
-  // Variedad de "objetos" que el agente lleva al lado del cerebro
-  const AGENT_KITS = [
-    ['🧠', '💼'], ['🧠', '📦'], ['🧠', '🛠️'], ['🧠', '💻'],
-    ['🧠', '📱'], ['🧠', '☕'], ['🧠', '🔬'], ['🧠', '📊'],
-    ['🧠', '🔧'], ['🧠', '📋'], ['🧠', '💡'], ['🧠', '🎯'],
-  ];
-
-  // ── Tamaño del item al lado del cerebro ──
-  // El cerebro siempre se renderiza grande (BRAIN_FONT_SIZE). El item al lado
-  // es proporcional al tamaño "real" del objeto: una bombilla es chica, una caja
-  // es grande, un café mediano, etc. Editá este mapa y los tamaños quedan
-  // guardados en el juego como defaults por objeto.
-  // Si un emoji no está acá, usa ITEM_DEFAULT_SIZE.
-  const BRAIN_FONT_SIZE   = 110;
-  const ITEM_DEFAULT_SIZE = 60;
-  const ITEM_SIZES = {
-    '💼': 64,    // maletín — mediano
-    '📦': 76,    // caja — grande
-    '🛠️': 60,    // martillo — mediano
-    '💻': 70,    // laptop — grande-mediano
-    '📱': 50,    // teléfono — chico
-    '☕': 56,    // café — chico-mediano
-    '🔬': 64,    // microscopio — mediano
-    '📊': 60,    // gráfico — mediano
-    '🔧': 56,    // llave inglesa — chico-mediano
-    '📋': 60,    // clipboard — mediano
-    '💡': 48,    // bombilla — chica
-    '🎯': 56,    // diana — chico-mediano
-  };
-  function getItemSize(emoji) {
-    return ITEM_SIZES[emoji] !== undefined ? ITEM_SIZES[emoji] : ITEM_DEFAULT_SIZE;
-  }
+  // AGENT_KITS + BRAIN_FONT_SIZE + ITEM_DEFAULT_SIZE + ITEM_SIZES + getItemSize
+  // ahora viven en src/game/agent-kits.ts.
 
   function createAgentTexture(left, right, brainFlipped) {
     const canvas = document.createElement('canvas');
@@ -3998,33 +3901,8 @@ import { formatRelTime } from './utils/format';
   function buildScene() {
     clearScene();
 
-    // ── Floor (una tile por celda con su color de pintura, default = paleta) ──
-    for (let cy = 0; cy < GRID_H; cy++) {
-      for (let cx = 0; cx < GRID_W; cx++) {
-        const tileColor = (worldGrid.floorColors && worldGrid.floorColors[cy][cx] !== null)
-          ? worldGrid.floorColors[cy][cx]
-          : PALETTE.floor;
-        const tileGeo = new THREE.PlaneGeometry(CELL, CELL);
-        tileGeo.rotateX(-Math.PI / 2);
-        const tileMat = new THREE.MeshBasicMaterial({ color: tileColor, side: THREE.DoubleSide });
-        const tile = new THREE.Mesh(tileGeo, tileMat);
-        tile.position.set(
-          (cx + 0.5) * CELL - centerX,
-          -0.05,
-          (cy + 0.5) * CELL - centerZ
-        );
-        tile.userData.floorTile = { cx, cy };
-        scene.add(tile);
-        sceneObjects.push(tile);
-      }
-    }
-
-    // ── Floor grid ──
-    const gridHelper = new THREE.GridHelper(GRID_W * CELL, GRID_W, 0x9a8c70, 0x9a8c70);
-    gridHelper.position.y = 0.1;
-    gridHelper.visible = showStrokes;
-    scene.add(gridHelper);
-    sceneObjects.push(gridHelper);
+    // Floor + gridHelper ahora en src/engine/floor-render.ts.
+    buildFloor();
 
     // ── Walls N ──
     // Cutaway dinámico: se reduce a zócalo la pared "del frente" según
@@ -4996,41 +4874,19 @@ import { formatRelTime } from './utils/format';
     e.target.classList.toggle('active', buildWallStyle !== 'solid');
   });
 
-  // ── Panel de pintura ──
+  // Paint UI ahora vive en src/ui/paint-panel.ts. Acá queda el wrapper que
+  // sincroniza paintColor + dispara refresh de preview (deps a mode/leftDown
+  // que siguen en legacy).
   function setPaintColor(c) {
     paintColor = c;
-    // Actualizar UI: highlight de swatch activa o ninguna
-    const swatches = document.querySelectorAll('.paint-swatch');
-    swatches.forEach(sw => {
-      const swColor = parseInt(sw.dataset.color, 16);
-      sw.classList.toggle('active', c !== null && swColor === c);
-    });
-    // Sincronizar el color picker
-    if (c !== null) {
-      const hex = '#' + c.toString(16).padStart(6, '0');
-      document.getElementById('paint-custom').value = hex;
-    }
-    // Refrescar preview con el nuevo color (force rebuild)
+    syncPaintUI(c);
     if (mode === 'paint' && !paintDragging && !leftDown && lastMouseEvent) {
       paintPreviewKey = null;
       updatePaintPreview(lastMouseEvent);
     }
   }
-  // Iniciar con el primer swatch activo
-  document.querySelectorAll('.paint-swatch').forEach(sw => {
-    sw.addEventListener('click', () => {
-      const c = parseInt(sw.dataset.color, 16);
-      setPaintColor(c);
-    });
-  });
-  document.getElementById('paint-custom').addEventListener('input', (e) => {
-    const hex = e.target.value;       // formato #rrggbb
-    const c = parseInt(hex.slice(1), 16);
-    setPaintColor(c);
-  });
-  document.getElementById('paint-clear').addEventListener('click', () => {
-    setPaintColor(null);
-  });
+  setOnPaintColorChange((c) => setPaintColor(c));
+  initPaintPanel();
   setPaintColor(0xc6bca2);   // estado inicial: el primer swatch (beige default)
 
   document.getElementById('btn-reset-world').addEventListener('click', () => {
