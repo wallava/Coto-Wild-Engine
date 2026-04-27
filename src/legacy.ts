@@ -104,7 +104,6 @@ import {
   getRaycaster,
   setRaycasterFromEvent,
   getCellFromEvent,
-  getFloorCellFromEvent,
   getWorldPointFromEvent,
   getPropFromEvent,
   setCanvasGetter,
@@ -130,7 +129,6 @@ import {
   getZones,
   createZone,
   deleteZone,
-  setZoneCell,
   setOnZonesChanged,
 } from './engine/rooms';
 import { VOICE_PRESETS, hashStringToInt, pickVoiceIdx } from './engine/voices';
@@ -202,6 +200,18 @@ import { showZoneEditBanner, hideZoneEditBanner } from './ui/zone-edit-banner';
 import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
 import { buildFloor } from './engine/floor-render';
 import { neighbors, findPath } from './engine/pathfinding';
+import {
+  initZoneEdit,
+  startZoneEdit as startZoneEditImpl,
+  stopZoneEdit as stopZoneEditImpl,
+  applyZoneEditAtEvent as applyZoneEditAtEventImpl,
+  isZoneEditing,
+  getZoneEditingId,
+  isZoneEditDragging,
+  beginZoneEditDrag,
+  endZoneEditDrag,
+  getZoneEditCursorAtEvent,
+} from './game/zone-edit';
 import {
   initSpawners,
   spawnRandomProp as spawnRandomPropImpl,
@@ -288,7 +298,6 @@ import {
 import {
   getMinCellsForZones,
   setMinCellsForZones,
-  canPaintZoneCell,
 } from './engine/zone-config';
 import {
   setWallModeGetter,
@@ -682,28 +691,23 @@ import { formatRelTime } from './utils/format';
   // ROOMS OVERLAY: roomsOverlayMeshes/Active + clearRoomsOverlay +
   // buildRoomsOverlay + addRoomOverlayTile ahora en src/engine/rooms-overlay.ts.
 
-  // Estado del modo "Editar celdas de zona". Cuando es no-null, el cursor en
-  // el piso pinta/borra celdas en esa zona específica con drag.
-  let zoneEditingId = null;
-  let zoneEditDragging = false;
-  let zoneEditDragMode = 'add';   // 'add' | 'remove'
-  setZoneEditingIdGetter(() => zoneEditingId);   // overlay lee desde acá
+  initZoneEdit({
+    onShowBanner: (zoneName) => showZoneEditBanner(zoneName),
+    onHideBanner: () => hideZoneEditBanner(),
+    onAfterEdit: () => buildRoomsOverlay(),
+  });
+  setZoneEditingIdGetter(() => getZoneEditingId());   // overlay lee desde acá
 
   // ── Modo "Editar celdas de zona" ──
   function startZoneEdit(zoneId) {
-    const zone = (worldGrid.zones || []).find(z => z.id === zoneId);
-    if (!zone) return;
-    zoneEditingId = zoneId;
-    zoneEditDragging = false;
+    startZoneEditImpl(zoneId);
+    if (getZoneEditingId() !== zoneId) return;
     // Asegurar overlay visible aunque el panel se cierre durante la edición
     setRoomsOverlayActive(true);
     buildRoomsOverlay();
-    showZoneEditBanner(zone.name || 'Sin nombre');
   }
   function stopZoneEdit() {
-    zoneEditingId = null;
-    zoneEditDragging = false;
-    hideZoneEditBanner();
+    stopZoneEditImpl();
     buildRoomsOverlay();
     renderer.domElement.style.cursor = '';
   }
@@ -711,16 +715,7 @@ import { formatRelTime } from './utils/format';
   // getFloorCellFromEvent ahora en src/engine/raycaster.ts.
   // Aplica add/remove de celda según drag mode
   function applyZoneEditAtEvent(event) {
-    if (!zoneEditingId) return;
-    const cell = getFloorCellFromEvent(event);
-    if (!cell) return;
-    // Guard: solo permite agregar zona si la celda está en una habitación
-    // (componente conexo) suficientemente grande. Quitar siempre se permite,
-    // por si la regla cambió y dejaron zonas en habitaciones chicas.
-    if (zoneEditDragMode === 'add' && !canPaintZoneCell(cell.cx, cell.cy)) {
-      return;
-    }
-    setZoneCell(zoneEditingId, cell.cx, cell.cy, zoneEditDragMode === 'add');
+    applyZoneEditAtEventImpl(event);
   }
 
   // canPaintZoneCell ahora en src/engine/zone-config.ts.
@@ -2093,9 +2088,8 @@ import { formatRelTime } from './utils/format';
     if (e.button === 0) {
       leftDown = true;
       // Modo "Editar celdas de zona" intercepta todo (igual que placeMode)
-      if (zoneEditingId !== null) {
-        zoneEditDragMode = 'add';
-        zoneEditDragging = true;
+      if (isZoneEditing()) {
+        beginZoneEditDrag('add');
         applyZoneEditAtEvent(e);
         return;
       }
@@ -2146,9 +2140,8 @@ import { formatRelTime } from './utils/format';
     } else if (e.button === 2) {
       rightDown = true;
       // Click derecho durante edit zone = quitar celda
-      if (zoneEditingId !== null) {
-        zoneEditDragMode = 'remove';
-        zoneEditDragging = true;
+      if (isZoneEditing()) {
+        beginZoneEditDrag('remove');
         applyZoneEditAtEvent(e);
         return;
       }
@@ -2219,18 +2212,13 @@ import { formatRelTime } from './utils/format';
       return;
     }
     // Editor de celdas de zona: drag con click izq/der pinta o borra
-    if (zoneEditingId !== null && zoneEditDragging) {
+    if (isZoneEditing() && isZoneEditDragging()) {
       applyZoneEditAtEvent(e);
       return;
     }
     // Hover sin drag durante zone edit: cursor varía si la celda está bloqueada
-    if (zoneEditingId !== null && !zoneEditDragging && !leftDown && !rightDown) {
-      const cell = getFloorCellFromEvent(e);
-      if (cell && !canPaintZoneCell(cell.cx, cell.cy)) {
-        renderer.domElement.style.cursor = 'not-allowed';
-      } else {
-        renderer.domElement.style.cursor = 'crosshair';
-      }
+    if (isZoneEditing() && !isZoneEditDragging() && !leftDown && !rightDown) {
+      renderer.domElement.style.cursor = getZoneEditCursorAtEvent(e);
     }
     // Preview de pintura en modo paint (sin click activo)
     if (mode === 'paint' && !leftDown && !isPaintDragging()) {
@@ -2396,13 +2384,13 @@ import { formatRelTime } from './utils/format';
         endPaintDrag();
       }
       // Reset estado de zone edit
-      if (zoneEditDragging) {
-        zoneEditDragging = false;
+      if (isZoneEditDragging()) {
+        endZoneEditDrag();
       }
     } else if (e.button === 2 && rightDown) {
       rightDown = false;
-      if (zoneEditDragging) {
-        zoneEditDragging = false;
+      if (isZoneEditDragging()) {
+        endZoneEditDrag();
       }
     }
   });
@@ -2461,7 +2449,7 @@ import { formatRelTime } from './utils/format';
         return;
       }
       // Después: zone edit mode
-      if (zoneEditingId !== null) {
+      if (isZoneEditing()) {
         stopZoneEdit();
         renderRoomsList();
         return;
@@ -2638,7 +2626,7 @@ import { formatRelTime } from './utils/format';
   // Rooms panel ahora vive en src/ui/rooms-panel.ts.
   initRoomsPanel({
     onMarkWorldChanged: () => markWorldChanged(),
-    getZoneEditingId: () => zoneEditingId,
+    getZoneEditingId: () => getZoneEditingId(),
     onStartZoneEdit: (id) => startZoneEdit(id),
     onStopZoneEdit: () => stopZoneEdit(),
     getMinCellsForZones: () => getMinCellsForZones(),
