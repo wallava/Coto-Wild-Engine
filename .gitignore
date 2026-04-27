@@ -9,3 +9,8 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .claude/
+
+# Cutscene compiler artifacts (output del CLI, NO commitear).
+# Excepto archivos de zones que son input.
+scenes/*.json
+!scenes/*.zones.json

@@ -66,6 +66,48 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 18:40 - [FASE 4 INTERACTIVA] R4 CLI + fixture + e2e (cierre Fase 4)
+
+**Plan inicial**: Codex CLI .ts + fixture + tests e2e con child_process.spawn.
+
+**Review loop con Codex**: 1 round.
+- 0 bloqueantes, 6 sugerencias todas aceptadas: tsx devDep, fs.watchFile, --zones arg desde inicio, .ts no .mjs, spawn child_process, tests/cutscene/e2e.test.ts.
+- 2 preguntas Codex respondidas: JSON output NO commitear (.gitignore), zonePositions es contrato del compiler (--zones path.json).
+
+**Tasks**:
+
+### CODEX-6: scripts/cutscene-compile.ts (delegated, session a2ec9f874363cee17)
+- 110 LOC. Args: input + --output + --zones + --watch.
+- Parse args sin libs externas. fs.watchFile para watch mode.
+
+### CODEX-8: fixture (delegated, session ad47f4e7547f8178a)
+- scenes/test-encuentro.scene.md (495 bytes, replica docs/CUTSCENES.md ejemplo).
+- scenes/test-encuentro.zones.json (76 bytes, cocina-1 y pasillo-3).
+
+### CODEX-EXTRA-R4: tests e2e (delegated, session af0ed07c5bdd5a5ef)
+- 5 tests con child_process.spawn. Valida CLI real, exit codes, JSON output válido contra CutsceneSchema.
+- Codex ajustó script `cutscene-compile` a `node --import tsx` (vez de `tsx` directo) por EPERM en sandbox al crear pipe IPC.
+
+### CLAUDE-R4: package.json + .gitignore
+- Instaló tsx como devDep.
+- Script `cutscene-compile` agregado.
+- .gitignore: scenes/*.json excluido excepto *.zones.json.
+
+**Validación nivel obligatorio (cierre Fase 4)**:
+- ✅ tsc --noEmit pasa.
+- ✅ smoke-test pasa.
+- ✅ npm test 176/176 (171 + 5 e2e).
+- ✅ `npm run cutscene-compile scenes/test-encuentro.scene.md --zones scenes/test-encuentro.zones.json` produce JSON.
+- ✅ JSON output valida contra CutsceneSchema.
+- ✅ Errores con line + message accionables.
+
+**Validación nivel opcional (nice-to-have)**:
+- 🟡 Cargar JSON en editor para ver visualmente: NO ejecutado. Loguear como pendiente para cuando el editor esté completamente migrado.
+
+**Status**: ✅ Done. Fase 4 cerrada.
+
+---
+
 ## 2026-04-27 16:10 - [FASE 4 INTERACTIVA] R3 actions + compiler + tests (round crítico)
 
 **Plan inicial**: actions.ts puras (Codex) + compiler.ts simulación temporal (Claude). Tests integration.
