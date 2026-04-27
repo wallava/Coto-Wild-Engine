@@ -66,6 +66,29 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 19:00 - [POST-FASE 4] Pendientes nice-to-have
+
+Validación visual end-to-end ejecutada por Pablo: cargó scenes/test-encuentro.json en el editor vía paste a localStorage. Pipeline funciona — el JSON carga, scenes/tracks/camera.keyframes parsean correctos. Calidad del output cinematográfico requiere tuning.
+
+**[PENDING-TUNING-SHOTS]**: shot types con geometría errática en cámara.
+- Síntoma: 3 cuts apuntan mal a personajes en `wide_establishing`, `two_shot`, `close_up`. Cámara mal posicionada/orientada respecto a sujetos.
+- Causa probable: distancia / ángulo iso / altura no calibrados en `src/cutscene/shots.ts`. Fórmula `distance = clamp(80, 600, 200 * 50 / lens)` y elevation/azimuth `45°/30°` son estimaciones razonables pero no validadas con feedback visual.
+- Solución: sesión dedicada de tuning con feedback visual iterativo, ajustar números mágicos hasta que cuts sean cinematográficos. Considerar:
+  - Lower elevation para shots tipo "close_up" / "two_shot" (humano-altura).
+  - Distancia base más sensible al bbox de sujetos.
+  - Target con raise y por categoría de shot (cabeza vs torso vs centro de bbox).
+- NO bloqueante para Fase 5.
+
+**[PENDING-FIXTURE-ZONES]**: agentes encimados en misma cell.
+- Síntoma: `mike@cocina-1` y `cris@pasillo-3` aparecen ambos en misma posición visualmente.
+- Causa probable: `scenes/test-encuentro.zones.json` mapea con cells `{cocina-1: 3,3}` y `{pasillo-3: 1,5}` pero quizás:
+  a) Las zone-ids no existen en el world actual (resuelven a default 0,0 sin warning visible).
+  b) El mapping a cells está bien pero los meshes superpuestos por algún bug del runtime.
+- Solución: revisar mapping cuando se agreguen más fixtures + verificar que zone-ids matchean con world catalog real. Posible mejora: warning explícito en compiler cuando location no resuelve.
+- NO bloqueante.
+
+---
+
 ## 2026-04-27 18:40 - [FASE 4 INTERACTIVA] R4 CLI + fixture + e2e (cierre Fase 4)
 
 **Plan inicial**: Codex CLI .ts + fixture + tests e2e con child_process.spawn.
