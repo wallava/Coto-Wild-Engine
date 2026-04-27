@@ -12,10 +12,12 @@
 //   - saveToStorage / loadFromStorage / loadSlot / resetWorldToDefault
 //   - markWorldChanged
 
+import type { z } from 'zod';
 import { GRID_H } from './state';
 import { uid } from '../utils/id';
 import { eventBus } from './event-bus';
 import { worldGrid, props } from './world';
+import { WorldSchema, type World as WorldValidated } from './schema';
 
 // agents son globales en legacy hasta que se extraiga el chassis. Acá
 // recibimos via getter callback para que serializeWorld pueda incluirlos.
@@ -74,6 +76,41 @@ export function isValidWorldData(data: unknown): data is WorldData {
   if (!Array.isArray(wallN) || !Array.isArray(wallW)) return false;
   if (wallN.length !== GRID_H + 1 || wallW.length !== GRID_H) return false;
   return true;
+}
+
+// ── Validación estricta (API nueva) ────────────────────────────────
+// `validateWorld` complementa el guard laxo `isValidWorldData` con shape
+// estricto + check de dimensiones. NO reemplaza el guard legacy: callers
+// existentes (loadFromStorage, applySlot) siguen usando isValidWorldData
+// para tolerar worlds del monolito que aún no pasaron por migrate.
+//
+// Para callers nuevos (R4 migrations integradas) usar validateWorld.
+
+export type BadDimensionsError = { code: 'BAD_DIMENSIONS'; message: string };
+
+export type WorldValidationResult =
+  | { ok: true; world: WorldValidated }
+  | { ok: false; error: z.ZodError | BadDimensionsError };
+
+export function validateWorld(raw: unknown): WorldValidationResult {
+  const parsed = WorldSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn('[world/validate] schema mismatch', {
+      issues: parsed.error.issues.map((i) => ({
+        path: i.path.join('.'),
+        code: i.code,
+        message: i.message,
+      })),
+    });
+    return { ok: false, error: parsed.error };
+  }
+  const w = parsed.data;
+  if (w.wallN.length !== GRID_H + 1 || w.wallW.length !== GRID_H) {
+    const message = `wallN.length=${w.wallN.length} (esperado ${GRID_H + 1}), wallW.length=${w.wallW.length} (esperado ${GRID_H})`;
+    console.warn('[world/validate] bad dimensions', message);
+    return { ok: false, error: { code: 'BAD_DIMENSIONS', message } };
+  }
+  return { ok: true, world: w };
 }
 
 // ── Migración v1 → v2 ──────────────────────────────────────────────

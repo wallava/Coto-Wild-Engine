@@ -66,6 +66,33 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 14:35 - [FASE 3 INTERACTIVA] R3 validation world + tests engine schema (paralelo)
+
+**Plan inicial**: Claude agrega validateWorld a engine/persistence.ts (estricto + dim check). Codex tests engine/schema.ts.
+
+**Review loop con Codex**: 1 round.
+- 2 bloqueantes IMPORTANTES aceptados:
+  1. NO modificar isValidWorldData (queda guard laxo legacy intacto). WorldSchema estricto rechazaría worlds del monolito que applyWorldFromData tolera con migrateV1WorldData.
+  2. validateWorld es API NUEVA separada — no toca el guard legacy. Integración con loadFromStorage queda para R4.
+- Sugerencias aceptadas: BadDimensionsError type literal, no throw, BAD_DIMENSIONS unión vs refine en schema, GRID_H NO en schema.ts.
+
+**Tasks**:
+
+### CLAUDE-R3: validateWorld en engine/persistence.ts
+- `validateWorld(raw): {ok, world} | {ok: false, error: ZodError | BadDimensionsError}` (Pablo refactor: `value` → `world`).
+- WorldSchema.safeParse + dim check (wallN.length === GRID_H+1, wallW.length === GRID_H).
+- Log warning estructurado en cada caso de falla.
+
+### CODEX-R3: tests engine/schema (delegated)
+- Codex session: a58bb3f12d5819ba2 (background, completed).
+- 18 tests nuevos en tests/engine/schema.test.ts (Agent/Prop/Zone/RoomMeta/World + validateWorld + isValidWorldData compat laxo).
+- Out-of-scope (aceptado): event-bus.ts agregó `typeof window` guard para que tests en Node no crasheen.
+
+**Validación**: tsc ✅, smoke-test ✅, npm test 63/63 ✅ (16 + 29 + 18).
+**Status**: ✅ Done. Sin validación visual (sin wiring runtime).
+
+---
+
 ## 2026-04-27 14:25 - [FASE 3 INTERACTIVA] R2 validation cutscene + tests schema (paralelo)
 
 **Plan inicial**: Claude agrega validateCutscene helper a cutscene/persistence.ts. Codex en background genera tests Vitest para cutscene/schema.ts.

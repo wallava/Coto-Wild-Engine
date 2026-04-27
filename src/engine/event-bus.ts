@@ -42,7 +42,9 @@ export const eventBus: EventBus = (() => {
       if (set) set.delete(fn);
     },
     emit(evt, payload) {
-      if ((window as any).__cweDebugEvents) console.log('[evt]', evt, payload);
+      if (typeof window !== 'undefined' && (window as any).__cweDebugEvents) {
+        console.log('[evt]', evt, payload);
+      }
       const set = listeners.get(evt);
       if (!set) return;
       for (const fn of [...set]) {
@@ -57,4 +59,6 @@ export const eventBus: EventBus = (() => {
   return bus;
 })();
 
-(window as any).cweEventBus = eventBus;
+if (typeof window !== 'undefined') {
+  (window as any).cweEventBus = eventBus;
+}
