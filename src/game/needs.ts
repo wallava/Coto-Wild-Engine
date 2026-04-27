@@ -64,7 +64,9 @@ export const WORKING_EMOJI: Record<string, string> = {
 };
 
 // ── Queries de necesidades del agente ─────────────────────────────
-import { getRooms, getZones, type Room, type Zone } from '../engine/rooms';
+import { getRooms, getZones, getZoneAt, type Room, type Zone } from '../engine/rooms';
+import { eventBus } from '../engine/event-bus';
+import { ensureAgentStatus, clearAgentStatus } from '../engine/agent-status';
 import { checkZoneRequirements } from './zone-catalog';
 
 type AgentWithNeeds = {
@@ -123,4 +125,82 @@ export function findZoneForNeed(
     return da - db;
   });
   return candidates[0]!;
+}
+
+// Tipo runtime del agente para updateAgentNeeds. Subset de los campos del
+// agente legacy (cx/cy + needs + working + statusEmoji/Mesh + flags).
+type AgentForNeeds = {
+  cx: number;
+  cy: number;
+  needs: Record<string, number>;
+  working: { elapsed: number; duration: number; prop: unknown; zoneKind: string } | null;
+  statusEmoji?: string | null;
+  statusMesh?: import('three').Sprite | null;
+  _csAgent?: boolean;
+};
+
+// Tick del sistema needs. Decae, restaura según zona, avanza working timer y
+// ajusta el emoji de status (con histeresis). `skipAgent` se usa para excluir
+// al agente actualmente arrastrado por el usuario (queda congelado).
+export function updateAgentNeeds(
+  agents: AgentForNeeds[],
+  dt: number,
+  skipAgent?: AgentForNeeds | null,
+): void {
+  for (const agent of agents) {
+    if (skipAgent && agent === skipAgent) continue;
+    if (agent._csAgent) {
+      clearAgentStatus(agent);
+      continue;
+    }
+    // 1) Decay
+    for (const k of NEED_TYPES) {
+      const cur = agent.needs[k] ?? 100;
+      agent.needs[k] = Math.max(0, cur - NEED_DECAY[k] * dt);
+    }
+    // 2) Restore basado en zona actual
+    const zoneInfo = getZoneAt(agent.cx, agent.cy);
+    if (zoneInfo && zoneInfo.zone.kind) {
+      const restores = ZONE_RESTORES[zoneInfo.zone.kind] ?? {};
+      const mult = agent.working ? WORKING_RESTORE_MULT : 1;
+      for (const need in restores) {
+        const cur = agent.needs[need] ?? 0;
+        const inc = (restores[need as NeedType] ?? 0) * mult * dt;
+        agent.needs[need] = Math.min(100, cur + inc);
+      }
+    }
+    // 3) Working timer
+    if (agent.working) {
+      agent.working.elapsed += dt;
+      if (agent.working.elapsed >= agent.working.duration) {
+        const prop = agent.working.prop;
+        const zoneKind = agent.working.zoneKind;
+        agent.working = null;
+        eventBus.emit('agentFinishedStation', { agent, prop, zoneKind });
+      }
+    }
+    // 4) Status overlay (working emoji prevalece sobre needs)
+    if (agent.working) {
+      const wEmoji = WORKING_EMOJI[agent.working.zoneKind] ?? '⚙️';
+      ensureAgentStatus(agent, wEmoji);
+      continue;
+    }
+    let critical: NeedType | null = null;
+    let lowest = NEED_THRESHOLD_CRITICAL;
+    for (const k of NEED_TYPES) {
+      const v = agent.needs[k] ?? 100;
+      if (v < lowest) { lowest = v; critical = k; }
+    }
+    const targetEmoji = critical ? NEED_EMOJI[critical] : null;
+    // Histeresis: no quitar el overlay hasta que la need supere THRESHOLD_OK
+    if (agent.statusEmoji && critical === null) {
+      const recoveringNeed = (Object.keys(NEED_EMOJI) as NeedType[]).find(
+        (k) => NEED_EMOJI[k] === agent.statusEmoji,
+      );
+      if (recoveringNeed && (agent.needs[recoveringNeed] ?? 100) < NEED_THRESHOLD_OK) {
+        continue;
+      }
+    }
+    ensureAgentStatus(agent, targetEmoji);
+  }
 }

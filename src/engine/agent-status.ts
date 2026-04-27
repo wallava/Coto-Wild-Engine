@@ -4,6 +4,11 @@
 
 import * as THREE from 'three';
 import { getScene } from './scene-graph';
+import { CELL, centerX, centerZ } from './state';
+
+const STATUS_OFFSET_X = 18;
+const STATUS_OFFSET_Z = -6;
+const STATUS_OFFSET_Y_EXTRA = 32;
 
 const EMOJI_FONT = '72px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const CANVAS_SIZE = 96;
@@ -14,6 +19,25 @@ type AgentWithStatus = {
   statusEmoji?: string | null;
   statusMesh?: THREE.Sprite | null;
 };
+
+type AgentPositioned = {
+  px: number;
+  py: number;
+  spriteH: number;
+  statusMesh?: THREE.Sprite | null;
+};
+
+// Reposiciona el statusMesh de cada agente para que flote sobre su cabeza.
+// Llamar cada frame antes del render (después de mover los agentes).
+export function updateAgentStatusPositions(agents: AgentPositioned[]): void {
+  for (const agent of agents) {
+    if (!agent.statusMesh) continue;
+    const ax = agent.px * CELL - centerX + STATUS_OFFSET_X;
+    const ay = agent.spriteH + STATUS_OFFSET_Y_EXTRA;
+    const az = agent.py * CELL - centerZ + STATUS_OFFSET_Z;
+    agent.statusMesh.position.set(ax, ay, az);
+  }
+}
 
 // Borra el sprite actual del agente (si lo hay). Dispone material y textura.
 export function clearAgentStatus(agent: AgentWithStatus): void {

@@ -183,6 +183,7 @@ import {
   WORKING_EMOJI,
   getAgentMostCriticalNeed,
   findZoneForNeed,
+  updateAgentNeeds as updateAgentNeedsImpl,
 } from './game/needs';
 import {
   buildRoomsOverlay,
@@ -221,7 +222,7 @@ import {
   assignAgentTarget,
   setAgentMeshOpacity,
 } from './engine/agent-helpers';
-import { ensureAgentStatus, clearAgentStatus } from './engine/agent-status';
+import { clearAgentStatus, updateAgentStatusPositions } from './engine/agent-status';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -618,9 +619,6 @@ import { formatRelTime } from './utils/format';
 
   // Highlight render ahora en src/engine/selection-highlight.ts.
   // selectProp se queda acá: setea selectedProp + delega al engine.
-  function clearHighlight() {
-    clearSelectionHighlight();
-  }
   function selectProp(prop) {
     selectedProp = prop;
     showSelectionHighlight(prop);
@@ -1190,7 +1188,7 @@ import { formatRelTime } from './utils/format';
     }
     dragLastCx = prop.cx;
     dragLastCy = prop.cy;
-    clearHighlight();
+    clearSelectionHighlight();
     selectedProp = prop;
     setPropMeshOpacity(prop, 0.32);
     // Crear ghost con dimensiones según categoría
@@ -8334,86 +8332,18 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
 
   // ensureStatusMesh ahora en src/engine/agent-status.ts (ensureAgentStatus).
-  const ensureStatusMesh = ensureAgentStatus;
+  // updateAgentNeeds + clearAgentStatus ya importan directo desde el módulo.
 
   // getAgentMostCriticalNeed + findZoneForNeed ahora en src/game/needs.ts.
 
   // pickCellInZone ahora en src/engine/agent-helpers.ts.
 
-  function updateAgentNeeds(dt) {
-    for (const agent of agents) {
-      if (agent === draggedAgent) continue;     // mientras lo agarrás, congelado
-      // Agentes propios de cutscene: no tienen needs ni emojis flotantes (son
-      // actores de teatro, no NPCs del mundo). Si ya tenían statusMesh visible,
-      // limpiarlo.
-      if (agent._csAgent) {
-        clearAgentStatus(agent);
-        continue;
-      }
-      // 1) Decay
-      for (const k of NEED_TYPES) {
-        agent.needs[k] = Math.max(0, agent.needs[k] - NEED_DECAY[k] * dt);
-      }
-      // 2) Restore basado en zona actual
-      const zoneInfo = getZoneAt(agent.cx, agent.cy);
-      if (zoneInfo && zoneInfo.zone.kind) {
-        const restores = ZONE_RESTORES[zoneInfo.zone.kind] || {};
-        const mult = agent.working ? WORKING_RESTORE_MULT : 1;
-        for (const need in restores) {
-          agent.needs[need] = Math.min(100, agent.needs[need] + restores[need] * mult * dt);
-        }
-      }
-      // 3) Working timer
-      if (agent.working) {
-        agent.working.elapsed += dt;
-        if (agent.working.elapsed >= agent.working.duration) {
-          const prop = agent.working.prop;
-          const zoneKind = agent.working.zoneKind;
-          agent.working = null;
-          eventBus.emit('agentFinishedStation', { agent, prop, zoneKind });
-          console.log('[station] agente terminó en', prop ? prop.name : '(sin prop)');
-        }
-      }
-      // 4) Status overlay (emoji sobre cabeza)
-      // Durante working, mostrar emoji de la actividad. Si no, mostrar la need
-      // más crítica (con histeresis).
-      if (agent.working) {
-        const wEmoji = WORKING_EMOJI[agent.working.zoneKind] || '⚙️';
-        ensureStatusMesh(agent, wEmoji);
-        continue;
-      }
-      let critical = null;
-      let lowest = NEED_THRESHOLD_CRITICAL;
-      for (const k of NEED_TYPES) {
-        if (agent.needs[k] < lowest) { lowest = agent.needs[k]; critical = k; }
-      }
-      const targetEmoji = critical ? NEED_EMOJI[critical] : null;
-      // Histeresis: no quitar el overlay hasta que la need supere THRESHOLD_OK
-      if (agent.statusEmoji && critical === null) {
-        // Si actualmente muestra un emoji de need, esperar a que esa need se recupere
-        const recoveringNeed = Object.keys(NEED_EMOJI).find(k => NEED_EMOJI[k] === agent.statusEmoji);
-        if (recoveringNeed && agent.needs[recoveringNeed] < NEED_THRESHOLD_OK) {
-          continue;
-        }
-      }
-      ensureStatusMesh(agent, targetEmoji);
-    }
-  }
+  // updateAgentNeeds ahora en src/game/needs.ts. Wrapper para inyectar
+  // el agente arrastrado (queda excluido del tick).
+  function updateAgentNeeds(dt) { updateAgentNeedsImpl(agents, dt, draggedAgent); }
 
-  // Actualiza la posición del statusMesh para que siga al agente
-  function updateAgentStatusOverlays() {
-    for (const agent of agents) {
-      if (!agent.statusMesh) continue;
-      const ax = agent.px * CELL - centerX + 18;
-      const ay = agent.spriteH + 32;
-      const az = agent.py * CELL - centerZ - 6;
-      agent.statusMesh.position.set(ax, ay, az);
-    }
-  }
-
-  // ── (eliminado) Anillo verde durante working ──
-  // Pablo prefiere el hop continuo + emoji sobre la cabeza. Sin ring extra.
-  function updateWorkingRings(t) { /* no-op */ }
+  // updateAgentStatusOverlays ahora en src/engine/agent-status.ts (updateAgentStatusPositions).
+  function updateAgentStatusOverlays() { updateAgentStatusPositions(agents); }
 
   // Door animation eliminada — pendiente reescritura por Pablo. Las puertas
   // quedan estáticas (openness=0). El panel rotatorio sigue creándose en
@@ -8439,7 +8369,6 @@ import { formatRelTime } from './utils/format';
     updateThoughtBubbles(dt);
     // updateDoorAnimations(dt);   // eliminado, pendiente reescritura
     updateAgentStatusOverlays();
-    updateWorkingRings(now / 1000);
     updateSpeechBubbles(dt);
     updateDialoguePanel(dt);
     if (typeof ceUpdate === 'function') {
