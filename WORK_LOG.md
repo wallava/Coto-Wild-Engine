@@ -66,6 +66,45 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 21:30 - [FASE 5 INTERACTIVA] R3 Personality + Memory + Persistence + 3 personalidades
+
+**Plan inicial**: 4 jobs paralelos (3 Codex + Claude personalidades) + tests.
+
+**Review loop con Codex**: 1 round.
+- 0 bloqueantes, 3 ajustes menores aceptados:
+  1. AgentMemory.version: 1 desde el inicio.
+  2. Pruning desempates deterministas (dedup id, sort estable).
+  3. addEpisode pide importance: 0-1 explícito (no heurística oculta).
+
+**Tasks**:
+
+### CODEX-8: src/game/llm-agents/personality.ts (delegated)
+- 98 LOC. Personality + PersonalitySchema + Zod. buildSystemBlocks (cache='5m' fixed). getFallbackPhrase. buildUserMessage.
+
+### CODEX-9: src/game/llm-agents/memory.ts (delegated)
+- 179 LOC. AgentMemory con version:1. CRUD (createEmptyMemory, addEpisode, addFact, updateRelationship). pruneOldEpisodes con union recent+important + dedup + sort estable + trim por (importance asc, t asc).
+
+### CODEX-10: src/game/llm-agents/persistence.ts (delegated)
+- ~100 LOC. saveAgentMemory + loadAgentMemory con cuarentena patrón Fase 3. listSavedAgentIds. loadOrCreateAgentMemory. Storage inyectable.
+
+### CLAUDE-1: 3 personalidades + index.ts
+- ceo-pretender (Ricardo Mendoza 👔): jerga corporativa, pretende escuchar, Drucker/Sinek mal citados.
+- junior-overconfident (Tomi Vega 🤓): frameworks mezclados, papers no leídos, "obviamente".
+- intern-anxious (Sofi Gómez 🌱): disculpas, gracias, LinkedIn frases motivacionales 🙏✨💪.
+- Cada una: staticSystemBlock 500-800 tokens (heurística words*1.3), 3 examples, REGLA CRÍTICA literal world_context, 5+ fallbacks, model 'haiku-4-5'.
+- ALL_PERSONALITIES + getPersonalityById.
+
+### CODEX-7C: tests (delegated, 30 tests)
+- personality.test.ts (8): buildSystemBlocks shape, fallback random, schema valida, rechaza < 5 fallbacks.
+- memory.test.ts (10): CRUD, pruneOldEpisodes preserva recientes Y importantes (test crítico), trim por importance asc.
+- persistence.test.ts (6): save/load round-trip, cuarentena, raw preservado.
+- personalities.test.ts (6): 3 en catálogo, todas pasan PersonalitySchema, model haiku-4-5, REGLA CRÍTICA presente, tokens en rango.
+
+**Validación**: tsc ✅, smoke ✅, npm test **266/266** ✅ (236 + 30).
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 21:00 - [FASE 5 INTERACTIVA] R2 Settings UI + factory + tests
 
 **Plan inicial**: Settings UI (modal con focus trap), factory con cache invalidation, sanitizeError con 2 patterns, tracker.onChange.
