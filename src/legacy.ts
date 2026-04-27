@@ -108,6 +108,34 @@ import {
   updateSpeechBubbles,
   updateDialoguePanel,
 } from './engine/speech';
+import {
+  PROP_TEMPLATES,
+  WALL_PROP_TEMPLATES,
+  DOOR_PROP_TEMPLATES,
+} from './game/prop-catalog';
+import {
+  ROOM_KINDS,
+  ROOM_REQUIREMENTS,
+  checkZoneRequirements,
+} from './game/zone-catalog';
+import {
+  NEED_TYPES,
+  NEED_DECAY,
+  NEED_THRESHOLD_CRITICAL,
+  NEED_THRESHOLD_OK,
+  ZONE_RESTORES,
+  WORKING_RESTORE_MULT,
+  WORKING_DURATION,
+  NEED_EMOJI,
+  WORKING_EMOJI,
+} from './game/needs';
+import {
+  buildRoomsOverlay,
+  clearRoomsOverlay,
+  isRoomsOverlayActive,
+  setRoomsOverlayActive,
+  setZoneEditingIdGetter,
+} from './engine/rooms-overlay';
 
 (window as any).THREE = THREE;
 (window as any).Tone = Tone;
@@ -630,46 +658,6 @@ import {
     return hasAny && allWindow;
   }
 
-  // Templates para spawn de muebles random (mismas paletas + variaciones de tamaño)
-  const PROP_TEMPLATES = [
-    // ── floor (bloquea walking). stackable=true permite poner objetos encima ──
-    // Kinds consolidados: todas las mesas → 'table', todas las sillas → 'chair'.
-    // Solo objetos específicos (laptop, café, lámpara) tienen kind propio.
-    { name: 'Cubo alto',       kind: 'box',     category: 'floor', w: 1, d: 1, h: 60, top: 0x705030, right: 0x503010, left: 0x301000 },
-    { name: 'Mesa chica',      kind: 'table',   category: 'floor', w: 1, d: 1, h: 28, stackable: true, top: 0x705030, right: 0x503010, left: 0x301000 },
-    { name: 'Mesa larga H',    kind: 'table',   category: 'floor', w: 2, d: 1, h: 28, stackable: true, top: 0x705030, right: 0x503010, left: 0x301000 },
-    { name: 'Mesa larga V',    kind: 'table',   category: 'floor', w: 1, d: 2, h: 28, stackable: true, top: 0x705030, right: 0x503010, left: 0x301000 },
-    { name: 'Sillón',          kind: 'sofa',    category: 'floor', w: 2, d: 1, h: 24, top: 0xa84838, right: 0x782818, left: 0x481008 },
-    { name: 'Silla',           kind: 'chair',   category: 'floor', w: 1, d: 1, h: 40, top: 0xa84838, right: 0x782818, left: 0x481008 },
-    { name: 'Mesita azul',     kind: 'table',   category: 'floor', w: 1, d: 1, h: 16, stackable: true, top: 0x4878a0, right: 0x285878, left: 0x183858 },
-    { name: 'Taburete',        kind: 'chair',   category: 'floor', w: 1, d: 1, h: 12, top: 0xa89070, right: 0x787050, left: 0x584030 },
-    // ── rug (alfombra: no bloquea walking, va plano sobre el piso) ──
-    { name: 'Alfombra roja',   kind: 'rug',     category: 'rug', w: 1, d: 1, h: 1.5, top: 0xa84030, right: 0x882010, left: 0x680000 },
-    { name: 'Tapete azul',     kind: 'rug',     category: 'rug', w: 2, d: 1, h: 1.5, top: 0x4878a0, right: 0x285878, left: 0x183858 },
-    { name: 'Alfombra grande', kind: 'rug',     category: 'rug', w: 2, d: 2, h: 1.5, top: 0xa89868, right: 0x887838, left: 0x685810 },
-    { name: 'Tapete verde V',  kind: 'rug',     category: 'rug', w: 1, d: 2, h: 1.5, top: 0x70a060, right: 0x508040, left: 0x305020 },
-    // ── stack (encima de mesas: una unidad por celda de mueble stackable) ──
-    { name: 'Laptop',          kind: 'laptop',  category: 'stack', w: 1, d: 1, h: 4,  top: 0x404448, right: 0x282c30, left: 0x181c20 },
-    { name: 'Monitor',         kind: 'monitor', category: 'stack', w: 1, d: 1, h: 24, top: 0x202428, right: 0x383c40, left: 0x181c20 },
-    { name: 'Lámpara',         kind: 'lamp',    category: 'stack', w: 1, d: 1, h: 32, top: 0xe8d0a0, right: 0xc8a878, left: 0x988050 },
-    { name: 'Planta',          kind: 'plant',   category: 'stack', w: 1, d: 1, h: 22, top: 0x60a040, right: 0x408828, left: 0x286818 },
-    { name: 'Café',            kind: 'coffee',  category: 'stack', w: 1, d: 1, h: 10, top: 0xf0e8d8, right: 0xc0b8a0, left: 0x807868 },
-    { name: 'Libros',          kind: 'books',   category: 'stack', w: 1, d: 1, h: 14, top: 0xa84028, right: 0x782010, left: 0x481008 },
-  ];
-
-  // Templates de wall props (cuadros). Se agregan al catálogo con category='wall'.
-  const WALL_PROP_TEMPLATES = [
-    { name: 'Cuadro ocre',    w: 1, h: 24, zOffset: 50, top: 0xc88040, right: 0xa86028, left: 0x804818 },
-    { name: 'Cuadro azul',    w: 1, h: 18, zOffset: 60, top: 0x6090c0, right: 0x4078a8, left: 0x285880 },
-    { name: 'Cuadro grande',  w: 1, h: 30, zOffset: 40, top: 0x4a3a20, right: 0x382818, left: 0x201810 },
-  ];
-
-  // Templates de puerta: una por kind. Con info para el catálogo.
-  const DOOR_PROP_TEMPLATES = [
-    { name: 'Puerta de madera', kind: 'wood',   top: 0x8a5a30, right: 0x6a4220, left: 0x4a2a10 },
-    { name: 'Puerta moderna',   kind: 'modern', top: 0xd0d0d0, right: 0xa0a0a0, left: 0x808080 },
-    { name: 'Puerta de vidrio', kind: 'glass',  top: 0xa8d0e0, right: 0xa8d0e0, left: 0xa8d0e0 },
-  ];
 
   // Ahora que los templates están definidos, migrar/limpiar los props cargados
   // (rellenar `stackable` en mesas pre-v0.94 y descartar stacks huérfanos).
@@ -1245,125 +1233,6 @@ import {
   // ROOM_COLOR_PALETTE + pickRoomColor + computeAllRooms + reconcileRoomMeta
   // + getRooms + computeRoomHasDoor ahora viven en src/engine/rooms.ts.
 
-  // Categorías: las usan tanto habitaciones cerradas como zonas abiertas.
-  // El kind solo es un hint para gameplay — la diferencia "cerrada vs abierta"
-  // es estructural y la decide el motor (rooms = cerradas, zones = abiertas).
-  const ROOM_KINDS = [
-    { id: 'office',   label: 'Oficina' },
-    { id: 'meeting',  label: 'Sala de juntas' },
-    { id: 'kitchen',  label: 'Cocina' },
-    { id: 'lounge',   label: 'Lounge' },
-    { id: 'bathroom', label: 'Baño' },
-    { id: 'storage',  label: 'Depósito' },
-    { id: 'lobby',    label: 'Recepción' },
-    { id: 'creative', label: 'Espacio creativo' },
-    { id: 'social',   label: 'Espacio social' },
-    { id: 'outdoor',  label: 'Exterior' },
-  ];
-
-  // ── Requisitos de la zona para que sea funcional ──
-  // Usa kinds genéricos: 'table' cubre todas las mesas, 'chair' todas las sillas.
-  // Editás libremente esta tabla — el juego respeta los nuevos requisitos.
-  const ROOM_REQUIREMENTS = {
-    office:   [{ kind: 'table', count: 1 }, { kind: 'chair', count: 1 }, { kind: 'laptop', count: 1 }],
-    meeting:  [{ kind: 'table', count: 1 }, { kind: 'chair', count: 4 }],
-    kitchen:  [{ kind: 'table', count: 1 }, { kind: 'coffee', count: 1 }],
-    lounge:   [{ kind: 'sofa', count: 1 }, { kind: 'table', count: 1 }],
-    bathroom: [],
-    storage:  [{ kind: 'box', count: 1 }],
-    lobby:    [{ kind: 'sofa', count: 1 }, { kind: 'plant', count: 1 }],
-    creative: [{ kind: 'table', count: 1 }, { kind: 'chair', count: 2 }, { kind: 'lamp', count: 1 }],
-    social:   [{ kind: 'sofa', count: 1 }, { kind: 'chair', count: 2 }],
-    outdoor:  [],
-  };
-
-  // ── Necesidades del agente ──
-  // 4 needs que decaen con el tiempo (0=crítico, 100=lleno). Cada una se
-  // restaura en zonas específicas (ZONE_RESTORES). Cuando una need baja del
-  // threshold, el agente busca autónomamente una zona apropiada.
-  const NEED_TYPES = ['focus', 'hunger', 'social', 'bathroom'];
-  // Decay por segundo (jugando con valores bajos para que el ciclo dure varios
-  // minutos — sino los agentes están constantemente en pánico)
-  const NEED_DECAY = {
-    focus:    0.6,   // ~165s para vaciar (2.7 min)
-    hunger:   0.4,   // ~250s
-    social:   0.5,   // ~200s
-    bathroom: 0.7,   // ~143s (más urgente)
-  };
-  const NEED_THRESHOLD_CRITICAL = 30;     // bajo esto: aparece overlay + busca zona
-  const NEED_THRESHOLD_OK       = 75;     // sobre esto: overlay desaparece
-  // Restauración pasiva (estando en la zona): rate por segundo
-  const ZONE_RESTORES = {
-    kitchen:  { hunger: 14 },
-    bathroom: { bathroom: 22 },
-    lounge:   { focus: 9, social: 4 },
-    social:   { social: 14 },
-    creative: { focus: 7 },
-    meeting:  { social: 6 },
-    outdoor:  { focus: 4, social: 2 },
-    office:   {},                           // se trabaja, no descansa
-    storage:  {},
-    lobby:    {},
-  };
-  // Multiplier extra cuando el agente está "working" en una estación funcional
-  const WORKING_RESTORE_MULT = 2.5;
-  // Duración default de una sesión working (segundos)
-  const WORKING_DURATION = 8;
-  // Indicador visual de need crítica
-  const NEED_EMOJI = {
-    focus:    '💤',
-    hunger:   '🍔',
-    social:   '💬',
-    bathroom: '🚽',
-  };
-  // Emoji que aparece sobre la cabeza durante working, según kind de zona.
-  const WORKING_EMOJI = {
-    office:   '💼',
-    meeting:  '🗣️',
-    kitchen:  '🍳',
-    lounge:   '😌',
-    bathroom: '🚿',
-    creative: '🎨',
-    social:   '🍻',
-    outdoor:  '🌳',
-    storage:  '📦',
-    lobby:    '👋',
-  };
-
-  // propsInCells ahora vive en src/engine/rooms.ts.
-
-  // Chequea si una zona cumple sus requisitos según ROOM_REQUIREMENTS[kind].
-  // Devuelve { ok, missing: [{kind, needed, have}], satisfiedBy: {kind: [props]} }.
-  // Si la zona no tiene kind asignado, ok=false con missing=[] (caso especial:
-  // "zona sin propósito definido").
-  function checkZoneRequirements(zone) {
-    const result = { ok: false, missing: [], satisfiedBy: {}, hasKind: false };
-    if (!zone) return result;
-    const kind = zone.kind;
-    if (!kind) {
-      // Sin kind, no tiene requisitos definidos → no es "funcional"
-      return result;
-    }
-    result.hasKind = true;
-    const reqs = ROOM_REQUIREMENTS[kind] || [];
-    if (reqs.length === 0) {
-      // Kind sin requisitos (ej: bathroom, outdoor) — siempre funcional
-      result.ok = true;
-      return result;
-    }
-    const propsHere = propsInCells(zone.cells);
-    let allMet = true;
-    for (const req of reqs) {
-      const matches = propsHere.filter(p => (p.kind || '') === req.kind);
-      result.satisfiedBy[req.kind] = matches;
-      if (matches.length < req.count) {
-        result.missing.push({ kind: req.kind, needed: req.count, have: matches.length });
-        allMet = false;
-      }
-    }
-    result.ok = allMet;
-    return result;
-  }
 
   // getZoneAt + getZones ahora viven en src/engine/rooms.ts.
   function createZone() {
@@ -1589,60 +1458,15 @@ import {
   // habitación tinta sus celdas con su color asignado, opacidad baja para no
   // tapar lo que hay debajo. Tras cualquier rebuild de escena se vuelve a
   // construir si está activo.
-  const roomsOverlayMeshes = [];
-  let roomsOverlayActive = false;
+  // ROOMS OVERLAY: roomsOverlayMeshes/Active + clearRoomsOverlay +
+  // buildRoomsOverlay + addRoomOverlayTile ahora en src/engine/rooms-overlay.ts.
 
   // Estado del modo "Editar celdas de zona". Cuando es no-null, el cursor en
   // el piso pinta/borra celdas en esa zona específica con drag.
   let zoneEditingId = null;
   let zoneEditDragging = false;
   let zoneEditDragMode = 'add';   // 'add' | 'remove'
-
-  function clearRoomsOverlay() {
-    for (const m of roomsOverlayMeshes) {
-      scene.remove(m);
-      if (m.geometry) m.geometry.dispose();
-      if (m.material) m.material.dispose();
-    }
-    roomsOverlayMeshes.length = 0;
-  }
-  function buildRoomsOverlay() {
-    clearRoomsOverlay();
-    if (!roomsOverlayActive) return;
-    // Capa 1: habitaciones cerradas (autodetectadas)
-    const rooms = getRooms();
-    for (const room of rooms) {
-      for (const cell of room.cells) {
-        addRoomOverlayTile(cell.cx, cell.cy, room.color, 0.32, 95);
-      }
-    }
-    // Capa 2: zonas abiertas (manuales). Renderorder mayor para que se vean
-    // encima de la habitación cerrada en las celdas que comparten.
-    const zones = getZones();
-    for (const zone of zones) {
-      for (const cell of zone.cells) {
-        // Highlight más fuerte si esta zona está siendo editada
-        const isEditing = zoneEditingId === zone.id;
-        addRoomOverlayTile(cell.cx, cell.cy, zone.color, isEditing ? 0.55 : 0.42, 96);
-      }
-    }
-  }
-  function addRoomOverlayTile(cx, cy, color, opacity, renderOrder) {
-    const geo = new THREE.PlaneGeometry(CELL - 4, CELL - 4);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color, transparent: true, opacity,
-      depthTest: false, side: THREE.DoubleSide,
-    });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(
-      (cx + 0.5) * CELL - centerX, 0.7,
-      (cy + 0.5) * CELL - centerZ
-    );
-    m.renderOrder = renderOrder;
-    scene.add(m);
-    roomsOverlayMeshes.push(m);
-  }
+  setZoneEditingIdGetter(() => zoneEditingId);   // overlay lee desde acá
 
   // ── Modo "Editar celdas de zona" ──
   function startZoneEdit(zoneId) {
@@ -1651,7 +1475,7 @@ import {
     zoneEditingId = zoneId;
     zoneEditDragging = false;
     // Asegurar overlay visible aunque el panel se cierre durante la edición
-    roomsOverlayActive = true;
+    setRoomsOverlayActive(true);
     buildRoomsOverlay();
     showZoneEditBanner(zone.name || 'Sin nombre');
   }
@@ -5682,7 +5506,7 @@ import {
     const panel = document.getElementById('rooms-panel');
     const willOpen = !panel.classList.contains('open');
     panel.classList.toggle('open', willOpen);
-    roomsOverlayActive = willOpen;
+    setRoomsOverlayActive(willOpen);
     buildRoomsOverlay();
     if (willOpen) {
       document.getElementById('min-cells-input').value = String(minCellsForZones);
