@@ -10,10 +10,15 @@ import {
   pickNearestProp,
   findWalkableAdjacentToProp,
   assignAgentTarget,
+  pickCellInZone,
 } from '../engine/agent-helpers';
+import { findPath } from '../engine/pathfinding';
+import { GRID_W, GRID_H } from '../engine/state';
 import type { PropAny } from '../engine/world';
 import { ROOM_REQUIREMENTS, checkZoneRequirements } from './zone-catalog';
-import { WORKING_DURATION } from './needs';
+import { WORKING_DURATION, getAgentMostCriticalNeed, findZoneForNeed } from './needs';
+
+const RANDOM_DESTINATION_MAX_ATTEMPTS = 30;
 
 const CONFUSED_THOUGHT_DURATION_S = 2.5;
 
@@ -84,4 +89,42 @@ export function handleAgentLanded(agent: AgentForStation): void {
   } else {
     startWorkingState(agent, nearest, zoneInfo.zone.kind!);
   }
+}
+
+// Elige el próximo destino del agente:
+//   1) Si tiene need crítica, busca zona apropiada y camina al cell más cercano.
+//   2) Fallback: random walk (hasta MAX_ATTEMPTS celdas alcanzables).
+// Devuelve true si asignó un path. Si el agente está working, devuelve false sin tocar.
+export function pickRandomDestination(
+  agent: AgentForStation & { needs: Record<string, number> },
+): boolean {
+  if (agent.working) return false;
+  const crit = getAgentMostCriticalNeed(agent);
+  if (crit) {
+    const zoneInfo = findZoneForNeed(crit.need, agent.cx, agent.cy);
+    if (zoneInfo) {
+      const cell = pickCellInZone(zoneInfo.zone.cells, agent.cx, agent.cy);
+      if (cell) {
+        const path = findPath(agent.cx, agent.cy, cell.cx, cell.cy);
+        if (path && path.length > 0) {
+          agent.path = path;
+          agent.target = [cell.cx, cell.cy];
+          return true;
+        }
+      }
+    }
+  }
+  let attempts = 0;
+  while (attempts++ < RANDOM_DESTINATION_MAX_ATTEMPTS) {
+    const gx = Math.floor(Math.random() * GRID_W);
+    const gy = Math.floor(Math.random() * GRID_H);
+    if (gx === agent.cx && gy === agent.cy) continue;
+    const path = findPath(agent.cx, agent.cy, gx, gy);
+    if (path && path.length > 0) {
+      agent.path = path;
+      agent.target = [gx, gy];
+      return true;
+    }
+  }
+  return false;
 }

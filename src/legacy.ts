@@ -188,6 +188,7 @@ import {
 import {
   startWorkingState,
   handleAgentLanded,
+  pickRandomDestination,
 } from './game/stations';
 import {
   buildRoomsOverlay,
@@ -2064,43 +2065,7 @@ import { formatRelTime } from './utils/format';
 
   // assignAgentTarget ahora en src/engine/agent-helpers.ts.
 
-  function pickRandomDestination(agent) {
-    // Si el agente está working, no busca nuevo destino
-    if (agent.working) return false;
-    // Need-driven: si alguna need está crítica, buscar zona apropiada
-    const crit = (typeof getAgentMostCriticalNeed === 'function')
-      ? getAgentMostCriticalNeed(agent) : null;
-    if (crit) {
-      const zoneInfo = findZoneForNeed(crit.need, agent.cx, agent.cy);
-      if (zoneInfo) {
-        const cell = pickCellInZone(zoneInfo.zone.cells, agent.cx, agent.cy);
-        if (cell) {
-          const path = findPath(agent.cx, agent.cy, cell.cx, cell.cy);
-          if (path && path.length > 0) {
-            agent.path = path;
-            agent.target = [cell.cx, cell.cy];
-            // Marcar la zona como destino-restorativo: al llegar el agente
-            // simplemente se queda ahí (las needs se restauran pasivamente).
-            return true;
-          }
-        }
-      }
-    }
-    // Fallback: random walk
-    let attempts = 0;
-    while (attempts++ < 30) {
-      const gx = Math.floor(Math.random() * GRID_W);
-      const gy = Math.floor(Math.random() * GRID_H);
-      if (gx === agent.cx && gy === agent.cy) continue;
-      const path = findPath(agent.cx, agent.cy, gx, gy);
-      if (path && path.length > 0) {
-        agent.path = path;
-        agent.target = [gx, gy];
-        return true;
-      }
-    }
-    return false;
-  }
+  // pickRandomDestination ahora en src/game/stations.ts.
 
   function updateAgents(dt) {
     for (const agent of agents) {
