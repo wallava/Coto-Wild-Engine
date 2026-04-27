@@ -149,6 +149,15 @@ import {
   type FxInstance,
 } from './cutscene/fx';
 import {
+  multiSelClear as editorMultiSelClear,
+  multiSelHasScene as editorMultiSelHasScene,
+  multiSelHasKf as editorMultiSelHasKf,
+  multiSelCount as editorMultiSelCount,
+  multiSelResolveKfs as editorMultiSelResolveKfs,
+  updateLassoBox as editorUpdateLassoBox,
+  computeLassoSelection as editorComputeLassoSelection,
+} from './editor/multi-sel';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -3342,42 +3351,14 @@ import { formatRelTime } from './utils/format';
   // Por defecto el clon es "continuación de la misma escena" (inherit=true,
   // mismo escenaRootId que el origen). Si Pablo quiere otra escena, usa el
   // toggle del popover.
-  // ── Multi-selección (lasso) helpers ──
-  function ceMultiSelClear() {
-    ceState.multiSel = { scenes: [], kfs: [] };
-  }
-  function ceMultiSelHasScene(sceneId) {
-    return ceState.multiSel.scenes.includes(sceneId);
-  }
+  // ── Multi-selección (lasso) helpers — wrappers a src/editor/multi-sel.ts ──
+  function ceMultiSelClear() { editorMultiSelClear(ceState); }
+  function ceMultiSelHasScene(sceneId) { return editorMultiSelHasScene(ceState, sceneId); }
   function ceMultiSelHasKf(kind, trackIdx, fxEntityIdx, kfIdx) {
-    return ceState.multiSel.kfs.some(k =>
-      k.kind === kind &&
-      (k.trackIdx ?? -1) === (trackIdx ?? -1) &&
-      (k.fxEntityIdx ?? -1) === (fxEntityIdx ?? -1) &&
-      k.kfIdx === kfIdx);
+    return editorMultiSelHasKf(ceState, kind, trackIdx, fxEntityIdx, kfIdx);
   }
-  function ceMultiSelCount() {
-    return ceState.multiSel.scenes.length + ceState.multiSel.kfs.length;
-  }
-  // Resuelve cada entrada de multiSel.kfs a su array y kf real (puede ser null si fue eliminado)
-  function ceMultiSelResolveKfs() {
-    const out = [];
-    for (const id of ceState.multiSel.kfs) {
-      let arr = null;
-      if (id.kind === 'camera') arr = ceState.cutscene.camera.keyframes;
-      else if (id.kind === 'walls') arr = ceState.cutscene.walls && ceState.cutscene.walls.keyframes;
-      else if (id.kind === 'fx') {
-        const ent = ceState.cutscene.fx && ceState.cutscene.fx.entities[id.fxEntityIdx];
-        arr = ent && ent.keyframes;
-      } else if (id.kind === 'agent') {
-        const tr = ceState.cutscene.tracks[id.trackIdx];
-        arr = tr && tr.keyframes;
-      }
-      const kf = arr && arr[id.kfIdx];
-      if (kf) out.push({ id, arr, kf });
-    }
-    return out;
-  }
+  function ceMultiSelCount() { return editorMultiSelCount(ceState); }
+  function ceMultiSelResolveKfs() { return editorMultiSelResolveKfs(ceState, ceState.cutscene); }
 
   // ── Group drag: arrastra todos los items multi-seleccionados juntos ──
   function ceStartGroupDrag(anchor, anchorKind, startX, alt) {
@@ -3497,77 +3478,10 @@ import { formatRelTime } from './utils/format';
     }
   }
 
-  // ── Lasso: caja visual + cálculo de items contenidos ──
-  function ceUpdateLassoBox() {
-    const ld = ceState.lassoDrag;
-    if (!ld) return;
-    let box = document.getElementById('ce-lasso-box');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'ce-lasso-box';
-      box.style.cssText =
-        'position:fixed; pointer-events:none; z-index:1500; ' +
-        'background:rgba(120, 200, 255, 0.10); ' +
-        'border:1px solid rgba(120, 200, 255, 0.85); ' +
-        'border-radius:2px;';
-      document.body.appendChild(box);
-    }
-    const x = Math.min(ld.startX, ld.currX);
-    const y = Math.min(ld.startY, ld.currY);
-    const w = Math.abs(ld.currX - ld.startX);
-    const h = Math.abs(ld.currY - ld.startY);
-    box.style.left = x + 'px';
-    box.style.top = y + 'px';
-    box.style.width = w + 'px';
-    box.style.height = h + 'px';
-  }
-  // Recorre los .ce-scene-block y .ce-keyframe del DOM y los marca como
-  // seleccionados si su getBoundingClientRect overlap con la caja.
+  // ── Lasso: caja visual + cálculo de items — wrappers a src/editor/multi-sel.ts ──
+  function ceUpdateLassoBox() { editorUpdateLassoBox(ceState.lassoDrag); }
   function ceComputeLassoSelection(x1, y1, x2, y2, additive) {
-    const bx = Math.min(x1, x2), by = Math.min(y1, y2);
-    const bx2 = Math.max(x1, x2), by2 = Math.max(y1, y2);
-    function overlap(r) {
-      return !(r.right < bx || r.left > bx2 || r.bottom < by || r.top > by2);
-    }
-    if (!additive) ceMultiSelClear();
-    // Planos
-    const blocks = ceTracks.querySelectorAll('.ce-scene-block');
-    for (const b of blocks) {
-      const r = b.getBoundingClientRect();
-      if (overlap(r)) {
-        const sceneId = b.dataset.sceneId;
-        if (sceneId && !ceMultiSelHasScene(sceneId)) {
-          ceState.multiSel.scenes.push(sceneId);
-        }
-      }
-    }
-    // Keyframes — identificamos el tipo por classList (más robusto que dataset)
-    const kfs = ceTracks.querySelectorAll('.ce-keyframe');
-    for (const kf of kfs) {
-      const r = kf.getBoundingClientRect();
-      if (!overlap(r)) continue;
-      const cl = kf.classList;
-      const kfIdx = parseInt(kf.dataset.kfIdx, 10);
-      if (isNaN(kfIdx)) continue;
-      let kind, trackIdx = -1, fxEntityIdx = -1;
-      if (cl.contains('kf-camera')) {
-        kind = 'camera';
-      } else if (cl.contains('kf-walls')) {
-        kind = 'walls';
-      } else if (cl.contains('kf-fx')) {
-        kind = 'fx';
-        fxEntityIdx = parseInt(kf.dataset.fxEntityIdx, 10);
-        if (isNaN(fxEntityIdx)) continue;
-      } else {
-        // Cualquier otra clase kf-* (kf-move, kf-speak, kf-animation) = agente
-        kind = 'agent';
-        trackIdx = parseInt(kf.dataset.trackIdx, 10);
-        if (isNaN(trackIdx)) continue;
-      }
-      if (!ceMultiSelHasKf(kind, trackIdx, fxEntityIdx, kfIdx)) {
-        ceState.multiSel.kfs.push({ kind, trackIdx, fxEntityIdx, kfIdx });
-      }
-    }
+    editorComputeLassoSelection(ceState, ceTracks, x1, y1, x2, y2, additive);
   }
 
   function ceCloneScene(scene, tStartNew = null) {
