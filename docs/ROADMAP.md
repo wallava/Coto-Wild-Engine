@@ -16,11 +16,29 @@ Este archivo es la lista viva de lo que falta. Se actualiza con cada sesión.
 
 Sin esto, todo lo demás está en pausa.
 
-- [ ] **Fase 0**: setup Vite + TS + tooling
-- [ ] **Fase 1**: extraer scripts del HTML a `.ts` modulares (sin separar engine/game)
-- [ ] **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con APIs explícitos
-- [ ] **Fase 3**: schemas Zod + migrations de datos persistidos
-- [ ] Verificar paridad con monolito (todo lo que andaba antes anda ahora)
+- [x] **Fase 0**: setup Vite + TS + tooling
+- [x] **Fase 1**: bulk del monolito a `legacy.ts` (con `@ts-nocheck`),
+  imports CDN → ES modules pinneados.
+- [ ] **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con
+  APIs explícitos. **40 módulos extraídos hasta 2026-04-27** (~26%
+  del legacy migrado). Ver `ARCHITECTURE.md` para inventario.
+- [ ] **Fase 3**: schemas Zod + migrations de datos persistidos.
+- [ ] Verificar paridad con monolito (todo lo que andaba antes anda ahora).
+
+### Pendientes Fase 2 grandes
+
+- **CUTSCENE EDITOR** — shell + FX + timeline + persistencia (~5000 líneas
+  legacy). La pieza más compleja. Necesita planning dedicado.
+- **spawnAgent + chassis + needs gameplay** (~1600 líneas).
+- **PLACE MODE build** + paint preview update + mouse handlers (~2500 líneas).
+- **applyWorld + loadSlot + resetWorldToDefault** — cierre persistencia
+  (depende de spawnAgent extraction).
+- **Camera control** (theta/phi/zoom + updateCamera).
+- **buildScene loop + corner posts + props render** — chunk medio del IIFE.
+- **TECHO ROOF** (~480 líneas) — primer intento de extracción tuvo bug
+  TDZ ceState; pendiente investigar init order.
+- **Door animation** — eliminada por bug pre-existente, Pablo reescribirá.
+- **Animate loop + boot** → `main.ts` orchestrator final.
 
 Ver detalle en `ARCHITECTURE.md`.
 

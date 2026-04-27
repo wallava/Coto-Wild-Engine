@@ -1,5 +1,78 @@
 # ARCHITECTURE.md — Estructura del código
 
+## Estado actual (2026-04-27)
+
+**40 módulos extraídos** del monolito. legacy.ts: 11,941 → ~8,800 líneas
+(~26% migrado, ~74% pendiente). 12 commits en `main`.
+
+```
+src/
+├── utils/               (3 módulos: id, escape-html, format)
+├── engine/              (27 módulos — ver tabla abajo)
+├── game/                (5 módulos: prop-catalog, zone-catalog, needs,
+│                                    agent-kits, migrations)
+├── cutscene/            (1 módulo: persistence parcial)
+├── ui/                  (5 módulos: modals, catalog-panel, slots-panel,
+│                                    rooms-panel, paint-panel)
+├── legacy.ts            (~8,800 líneas, todo lo no extraído)
+└── main.ts              (importa './legacy')
+```
+
+### Módulos engine extraídos
+
+| Módulo | Qué cubre |
+|---|---|
+| state | constantes geometría grid + paleta + tipos |
+| world | worldGrid + props + push/remove/findPropAt + getFloorStackBase + defaultWorld |
+| persistence | localStorage (serializeWorld + saveToStorage + loadFromStorage + markWorldChanged + slots) |
+| event-bus | pub/sub mínimo |
+| voices | VOICE_PRESETS + hash + pickVoiceIdx |
+| speech | overhead bubbles + dialogue panel + voice TTS |
+| thought-bubbles | Tomodachi-style scribble overlay |
+| landing-anim | squash al aterrizar tras drag |
+| camera-gizmo | dummy 3D de cámara cinemática (render puro) |
+| wall-queries | hasWallN/W + door queries + isCorner + isAllWindowCorner + bounds + nearest helpers + path checks |
+| three-primitives | mkBox + makeGlassMesh + setStrokesGetter |
+| rooms | flood-fill + detección habitaciones + zonas (mutaciones + queries) |
+| rooms-overlay | render translúcido habitaciones + zonas |
+| door-panels | DOOR_TEMPLATES + makeDoorPanelMesh |
+| scene-graph | scene singleton + addToScene + clearScene + setPropMeshOpacity |
+| walls-render | builders sólidos + ventanas + puertas |
+| selection-highlight | wireframe yellow para mueble seleccionado |
+| floor-render | tiles + GridHelper |
+| paint | setFloorTileColor + setWallFaceColor + flood fills |
+| paint-preview | overlays translúcidos en hover modo Pintar |
+| pathfinding | A* clásico Manhattan + isBlockedByProp + neighbors |
+| zone-config | min cells for zones (persisted) |
+| wall-mode | wallHeightForN/W con cutaway-aware (setter pattern) |
+| raycaster | shared raycaster + getCellFromEvent + getFloorCellFromEvent + getPropFromEvent |
+| agent-texture | brain + item canvas → CanvasTexture |
+| agents-state | isAgentAt + setAgentsGetter |
+| wall-preview-render | overlays drag de pared (verde/rojo) |
+
+### Setter pattern para deps cíclicas
+
+Muchos módulos engine necesitan acceso a state que sigue en legacy hasta
+extracción completa (agents, scene, theta, wallMode, paintColor,
+markWorldChanged). El patrón:
+
+```ts
+// engine/foo.ts
+let _xGetter: () => X = () => defaultX;
+export function setXGetter(getter: () => X): void { _xGetter = getter; }
+```
+
+```ts
+// legacy.ts (boot)
+let x = ...;
+setXGetter(() => x);
+```
+
+Permite extraer la lógica sin tocar el state owner. Cuando el state owner
+también se extraiga, el setter se elimina.
+
+---
+
 ## Estructura objetivo
 
 ```
