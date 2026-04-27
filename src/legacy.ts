@@ -266,6 +266,16 @@ import {
   setDragLastSide,
 } from './engine/prop-drag';
 import {
+  initPlaceMode,
+  enterPlaceMode,
+  exitPlaceMode,
+  updatePlaceGhost,
+  applyPlace,
+  rotatePlaceTemplate,
+  spawnWallPropFromTemplate,
+  isPlaceModeActive,
+} from './engine/place-mode';
+import {
   getMinCellsForZones,
   setMinCellsForZones,
   canPaintZoneCell,
@@ -1143,306 +1153,23 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
   //  PLACE MODE — colocar mueble del catálogo con ghost
   // ══════════════════════════════════════════════════════════════
-  // Cuando seleccionás un template del catálogo, entrás a placeMode:
-  // un ghost del mueble sigue al cursor, click izq lo coloca, R rota,
-  // Esc cancela. Al colocar, salimos del placeMode automáticamente.
-  let placeMode = false;
-  let placeTemplate = null;     // copia del template (para rotar sin afectar el catálogo)
-  let placeGhost = null;
-  let placeValid = false;
-  let placeCx = 0, placeCy = 0;
-
-  function enterPlaceMode(tmpl) {
-    exitPlaceMode();
-    placeMode = true;
-    placeTemplate = { ...tmpl };
-    placeSide = 'N';   // default; updatePlaceGhost lo corrige al primer movimiento
-    rebuildPlaceGhost();
-    const banner = document.getElementById('place-banner');
-    const nameEl = document.getElementById('place-name');
-    nameEl.textContent = tmpl.name || (tmpl.category || 'mueble');
-    banner.classList.add('open');
-  }
-
-  function exitPlaceMode() {
-    if (placeGhost) {
-      scene.remove(placeGhost);
-      placeGhost.geometry.dispose();
-      placeGhost.material.dispose();
-      placeGhost = null;
-    }
-    clearDoorArrow();
-    placeMode = false;
-    placeTemplate = null;
-    placeValid = false;
-    document.getElementById('place-banner').classList.remove('open');
-  }
-
-  // ── Flecha de dirección de apertura para puertas ──
-  let placeArrow = null;
-  function clearDoorArrow() {
-    if (!placeArrow) return;
-    scene.remove(placeArrow);
-    placeArrow.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
-    });
-    placeArrow = null;
-  }
-  function updateDoorArrow() {
-    clearDoorArrow();
-    if (!placeMode || !placeTemplate || (placeTemplate.category || 'floor') !== 'door') return;
-    if (!placeGhost) return;
-    // Cono apuntando en dirección de placeSide
-    const cone = new THREE.ConeGeometry(7, 18, 4);
-    // Default cone apunta hacia +Y. Lo orientamos según side.
-    if (placeSide === 'S')      cone.rotateX(Math.PI / 2);
-    else if (placeSide === 'N') cone.rotateX(-Math.PI / 2);
-    else if (placeSide === 'E') cone.rotateZ(-Math.PI / 2);
-    else if (placeSide === 'W') cone.rotateZ(Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffd060, transparent: true, opacity: 0.85, depthTest: false,
-    });
-    placeArrow = new THREE.Mesh(cone, mat);
-    placeArrow.renderOrder = 999;
-    // Posicionar al lado del ghost en la dirección de side
-    const dist = 24;
-    let dx = 0, dz = 0;
-    if (placeSide === 'N') dz = -1;
-    else if (placeSide === 'S') dz = 1;
-    else if (placeSide === 'W') dx = -1;
-    else if (placeSide === 'E') dx = 1;
-    const gp = placeGhost.position;
-    placeArrow.position.set(gp.x + dx * dist, gp.y + 8, gp.z + dz * dist);
-    scene.add(placeArrow);
-  }
-
-  // Estado adicional para wall props en placeMode
-  let placeSide = 'N';   // 'N' o 'W' cuando placing wall
-
-  function rebuildPlaceGhost() {
-    if (placeGhost) {
-      scene.remove(placeGhost);
-      placeGhost.geometry.dispose();
-      placeGhost.material.dispose();
-      placeGhost = null;
-    }
-    if (!placeTemplate) return;
-    const cat = placeTemplate.category || 'floor';
-    let gw, gh, gd;
-    if (cat === 'wall') {
-      // El cuadro está orientado según el side actual: N/S = horizontal, W/E = vertical
-      const isHoriz = (placeSide === 'N' || placeSide === 'S');
-      if (isHoriz) { gw = CELL - 28; gd = 4; }
-      else         { gw = 4;          gd = CELL - 28; }
-      gh = placeTemplate.h;
-    } else if (cat === 'door') {
-      // Puerta: orientada según el axis del wall (N/S = horizontal, W/E = vertical).
-      // Ghost = caja del tamaño del marco completo (no solo el panel).
-      const isHoriz = (placeSide === 'N' || placeSide === 'S');
-      if (isHoriz) { gw = CELL - 8; gd = WALL_THICK + 2; }
-      else         { gw = WALL_THICK + 2; gd = CELL - 8; }
-      gh = DOOR_OPENING_H;
-    } else if (cat === 'rug') {
-      gw = placeTemplate.w * CELL - 8;
-      gd = placeTemplate.d * CELL - 8;
-      gh = placeTemplate.h;
-    } else if (cat === 'stack') {
-      gw = CELL - 28;
-      gd = CELL - 28;
-      gh = placeTemplate.h;
-    } else {
-      gw = placeTemplate.w * CELL - PROP_PAD * 2;
-      gd = placeTemplate.d * CELL - PROP_PAD * 2;
-      gh = placeTemplate.h;
-    }
-    const geo = new THREE.BoxGeometry(gw, gh, gd);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x80ff80, transparent: true, opacity: 0.55, depthTest: false
-    });
-    placeGhost = new THREE.Mesh(geo, mat);
-    placeGhost.renderOrder = 998;
-    scene.add(placeGhost);
-  }
-
-  function updatePlaceGhost(event) {
-    if (!placeMode || !placeGhost) return;
-    const cat = placeTemplate.category || 'floor';
-
-    if (cat === 'wall') {
-      // Wall: encontrar la cara de pared placeable más cercana al cursor.
-      // findNearestPlaceableWallFace ya filtra caras inexistentes y caras
-      // sin habitación adyacente, así que el side devuelto SIEMPRE es válido
-      // geométricamente. El placeValid solo dependerá de si ya hay otro cuadro
-      // en esa misma cara (canPlaceProp).
-      const wp = getWorldPointFromEvent(event);
-      if (!wp) return;
-      const face = findNearestPlaceableWallFace(wp);
-      if (!face) {
-        placeValid = false;
-        placeGhost.material.color.setHex(0xff6060);
-        return;
-      }
-      const newSide = face.side;
-      // Recrear ghost solo si cambia la orientación (H ↔ V)
-      const wasHoriz = (placeSide === 'N' || placeSide === 'S');
-      const isHoriz  = (newSide === 'N' || newSide === 'S');
-      placeSide = newSide;
-      if (wasHoriz !== isHoriz) rebuildPlaceGhost();
-
-      placeCx = face.cx;
-      placeCy = face.cy;
-      placeValid = canPlaceProp(
-        { ...placeTemplate, side: placeSide, cx: placeCx, cy: placeCy },
-        placeCx, placeCy
-      );
-      placeGhost.material.color.setHex(placeValid ? 0x80ff80 : 0xff6060);
-      // Posicionar ghost adherido a la cara correcta
-      let gx, gz;
-      if (placeSide === 'S') {
-        gx = (placeCx + 0.5) * CELL;
-        gz = placeCy * CELL + halfT + 2;
-      } else if (placeSide === 'N') {
-        gx = (placeCx + 0.5) * CELL;
-        gz = placeCy * CELL - halfT - 2;
-      } else if (placeSide === 'E') {
-        gx = placeCx * CELL + halfT + 2;
-        gz = (placeCy + 0.5) * CELL;
-      } else {  // 'W'
-        gx = placeCx * CELL - halfT - 2;
-        gz = (placeCy + 0.5) * CELL;
-      }
-      const gy = placeTemplate.zOffset + placeTemplate.h / 2;
-      placeGhost.position.set(gx - centerX, gy, gz - centerZ);
-      return;
-    }
-
-    if (cat === 'door') {
-      // Door: el cursor decide en qué SEGMENTO (qué wall) va. El usuario decide
-      // el SIDE (dirección de apertura) con R.
-      const wp = getWorldPointFromEvent(event);
-      if (!wp) return;
-      const seg = findNearestWallSegment(wp);
-      if (!seg) {
-        placeValid = false;
-        placeGhost.material.color.setHex(0xff6060);
-        clearDoorArrow();
-        return;
-      }
-      const axisIsHoriz = (seg.type === 'wallN');
-      const sideIsHoriz = (placeSide === 'N' || placeSide === 'S');
-      if (axisIsHoriz !== sideIsHoriz) {
-        // Si el axis del segmento no coincide con el side actual, flipear a un
-        // default del axis nuevo
-        placeSide = axisIsHoriz ? 'S' : 'E';
-        rebuildPlaceGhost();
-      }
-      placeCx = seg.cx;
-      placeCy = seg.cy;
-      placeValid = canPlaceProp(
-        { ...placeTemplate, side: placeSide, cx: placeCx, cy: placeCy },
-        placeCx, placeCy
-      );
-      placeGhost.material.color.setHex(placeValid ? 0x80ff80 : 0xff6060);
-      // Ghost CENTRADO en el segmento (la puerta ocupa ambas caras)
-      let gx, gz;
-      if (seg.type === 'wallN') {
-        gx = (seg.cx + 0.5) * CELL;
-        gz = seg.cy * CELL;
-      } else {
-        gx = seg.cx * CELL;
-        gz = (seg.cy + 0.5) * CELL;
-      }
-      const gy = DOOR_OPENING_H / 2;
-      placeGhost.position.set(gx - centerX, gy, gz - centerZ);
-      updateDoorArrow();
-      return;
-    }
-
-    // Floor/rug: snap a celda
-    const cell = getCellFromEvent(event);
-    if (!cell) return;
-    placeCx = cell.cx;
-    placeCy = cell.cy;
-    placeValid = canPlaceProp(
-      { ...placeTemplate, cx: placeCx, cy: placeCy },
-      placeCx, placeCy
-    );
-    placeGhost.material.color.setHex(placeValid ? 0x80ff80 : 0xff6060);
-    // Altura del ghost: floor/rug se posa en el piso, stack se posa sobre el floor base
-    let baseY;
-    if (cat === 'stack') {
-      const base = getFloorStackBase(placeCx, placeCy);
-      baseY = (base ? base.h : 28) + placeTemplate.h / 2;
-    } else if (cat === 'rug') {
-      baseY = placeTemplate.h / 2;
-    } else {
-      baseY = placeTemplate.h / 2 + 6;
-    }
-    placeGhost.position.set(
-      (placeCx + placeTemplate.w / 2) * CELL - centerX,
-      baseY,
-      (placeCy + placeTemplate.d / 2) * CELL - centerZ
-    );
-  }
-
-  function applyPlace() {
-    if (!placeMode || !placeValid) return false;
-    const cat = placeTemplate.category || 'floor';
-    if (cat === 'wall' || cat === 'door') {
-      pushProp({ ...placeTemplate, side: placeSide, cx: placeCx, cy: placeCy });
-    } else {
-      pushProp({ ...placeTemplate, cx: placeCx, cy: placeCy });
-    }
-    for (const a of agents) { a.path = []; a.target = null; }
-    buildScene();
-    markWorldChanged();
-    exitPlaceMode();
-    return true;
-  }
-
-  function rotatePlaceTemplate() {
-    if (!placeMode || !placeTemplate) return;
-    const cat = placeTemplate.category || 'floor';
-    // Wall: R no aplica (el side viene del cursor)
-    if (cat === 'wall') return;
-    if (cat === 'door') {
-      // Cycle within axis: N↔S o W↔E. La dirección de apertura se invierte.
-      if (placeSide === 'N') placeSide = 'S';
-      else if (placeSide === 'S') placeSide = 'N';
-      else if (placeSide === 'W') placeSide = 'E';
-      else if (placeSide === 'E') placeSide = 'W';
-      updateDoorArrow();
-      return;
-    }
-    if (placeTemplate.w === placeTemplate.d) return;
-    const tw = placeTemplate.w;
-    placeTemplate.w = placeTemplate.d;
-    placeTemplate.d = tw;
-    rebuildPlaceGhost();
-  }
-
-  // Wall props: spawn directo en una cara aleatoria libre (cualquiera de
-  // las 4 caras posibles entre todas las paredes existentes).
-  function spawnWallPropFromTemplate(tmpl) {
-    const candidates = getCandidateWallSlots();
-    const free = candidates.filter(c => {
-      for (const p of props) {
-        if ((p.category || 'floor') !== 'wall') continue;
-        if (p.side === c.side && p.cx === c.cx && p.cy === c.cy) return false;
-      }
-      return true;
-    });
-    if (free.length === 0) {
-      console.log('[catalog] no hay caras libres para colgar', tmpl.name);
-      return false;
-    }
-    const slot = free[Math.floor(Math.random() * free.length)];
-    pushProp({ category: 'wall', side: slot.side, cx: slot.cx, cy: slot.cy, ...tmpl });
-    buildScene();
-    markWorldChanged();
-    return true;
-  }
+  // Place mode (colocar mueble del catálogo) ahora vive en src/engine/place-mode.ts.
+  // Hooks: onPlaced (agents.path reset + buildScene), onShowBanner/onHideBanner (UI DOM).
+  initPlaceMode({
+    onPlaced: () => {
+      for (const a of agents) { a.path = []; a.target = null; }
+      buildScene();
+    },
+    onShowBanner: (name) => {
+      const banner = document.getElementById('place-banner');
+      const nameEl = document.getElementById('place-name');
+      nameEl.textContent = name;
+      banner.classList.add('open');
+    },
+    onHideBanner: () => {
+      document.getElementById('place-banner').classList.remove('open');
+    },
+  });
 
   // ══════════════════════════════════════════════════════════════
   //  CATÁLOGO — panel con cards de templates seleccionables
@@ -2693,9 +2420,9 @@ import { formatRelTime } from './utils/format';
         return;
       }
       // placeMode tiene prioridad sobre cualquier otro modo
-      if (placeMode) {
+      if (isPlaceModeActive()) {
         updatePlaceGhost(e);
-        if (placeValid) applyPlace();
+        applyPlace();
         return;
       }
       if (mode === 'edit') {
@@ -2813,7 +2540,7 @@ import { formatRelTime } from './utils/format';
       return;
     }
     // placeMode: ghost sigue al cursor sin importar click
-    if (placeMode) {
+    if (isPlaceModeActive()) {
       updatePlaceGhost(e);
       return;
     }
@@ -3046,7 +2773,7 @@ import { formatRelTime } from './utils/format';
       keyRight = true;
     } else if (e.key === 'r' || e.key === 'R') {
       // placeMode tiene prioridad: rotar el template del catálogo
-      if (placeMode) {
+      if (isPlaceModeActive()) {
         e.preventDefault();
         rotatePlaceTemplate();
       } else {
@@ -3058,7 +2785,7 @@ import { formatRelTime } from './utils/format';
       if (selectedProp) { e.preventDefault(); deletePropSelected(); }
     } else if (e.key === 'Escape') {
       // placeMode tiene prioridad
-      if (placeMode) {
+      if (isPlaceModeActive()) {
         exitPlaceMode();
         return;
       }
