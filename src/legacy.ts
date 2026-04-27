@@ -136,7 +136,6 @@ import {
   computeRoomHasDoor,
   propsInCells,
   getZones,
-  getZoneAt,
   createZone,
   deleteZone,
   setZoneCell,
@@ -1773,7 +1772,8 @@ import { formatRelTime } from './utils/format';
     };
     agents.push(agent);
     createAgentMesh(agent);
-    updateAgentCount();
+    document.getElementById('agent-count').textContent =
+      `${agents.length} agente${agents.length === 1 ? '' : 's'}`;
     eventBus.emit('agentSpawned', { agent });
     return agent;
   }
@@ -2138,11 +2138,6 @@ import { formatRelTime } from './utils/format';
       }
       syncAgentMesh(agent);
     }
-  }
-
-  function updateAgentCount() {
-    document.getElementById('agent-count').textContent =
-      `${agents.length} agente${agents.length === 1 ? '' : 's'}`;
   }
 
   // ══════════════════════════════════════════════════════════════
