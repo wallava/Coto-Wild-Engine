@@ -15,10 +15,15 @@ import {
 import { findPath } from '../engine/pathfinding';
 import { GRID_W, GRID_H } from '../engine/state';
 import type { PropAny } from '../engine/world';
+import { setAgentFacing, syncAgentMesh } from '../engine/agent-chassis';
 import { ROOM_REQUIREMENTS, checkZoneRequirements } from './zone-catalog';
 import { WORKING_DURATION, getAgentMostCriticalNeed, findZoneForNeed } from './needs';
 
 const RANDOM_DESTINATION_MAX_ATTEMPTS = 30;
+const IDLE_PAUSE_MIN_S = 0.3;
+const IDLE_PAUSE_RANGE_S = 1.2;
+const RETRY_PATH_DELAY_S = 1;
+const FACING_DEADBAND = 0.01;
 
 const CONFUSED_THOUGHT_DURATION_S = 2.5;
 
@@ -127,4 +132,94 @@ export function pickRandomDestination(
     }
   }
   return false;
+}
+
+// Tipo runtime del agente para updateAgents (subset extendido).
+type AgentForUpdate = AgentForStation & {
+  hopFreq: number;
+  hopTime: number;
+  hopping: boolean;
+  speed: number;
+  needs: Record<string, number>;
+  talking: boolean;
+};
+
+type UpdateAgentsOpts = {
+  skipAgent?: AgentForUpdate | null;
+  isCutsceneControlled?: (agent: AgentForUpdate) => boolean;
+};
+
+// Tick del loop de agentes: prioridades en orden son drag (skip), cutscene
+// (skip), talking (parar y syncar), working (hop lento), waiting (idle), sin
+// path (pickRandomDestination), o moviéndose por el path. Emite agentMoved
+// al pasar a una nueva celda.
+export function updateAgents(
+  agents: AgentForUpdate[],
+  dt: number,
+  opts: UpdateAgentsOpts = {},
+): void {
+  const skip = opts.skipAgent ?? null;
+  const isCsControlled = opts.isCutsceneControlled;
+  for (const agent of agents) {
+    if (skip && agent === skip) continue;
+    if (isCsControlled && isCsControlled(agent)) continue;
+    if (agent.talking) {
+      agent.hopping = false;
+      syncAgentMesh(agent as never);
+      continue;
+    }
+    if (agent.working) {
+      agent.hopping = true;
+      agent.hopTime += dt * agent.hopFreq * 0.5 * Math.PI;
+      syncAgentMesh(agent as never);
+      continue;
+    }
+    if (agent.waiting > 0) {
+      agent.waiting -= dt;
+      agent.hopping = false;
+      syncAgentMesh(agent as never);
+      continue;
+    }
+    if (!agent.path || agent.path.length === 0) {
+      if (!pickRandomDestination(agent)) {
+        agent.waiting = RETRY_PATH_DELAY_S;
+        continue;
+      }
+    }
+    agent.hopping = true;
+    agent.hopTime += dt * agent.hopFreq * Math.PI;
+    const [nx, ny] = agent.path[0]!;
+    const targetPx = nx + 0.5;
+    const targetPy = ny + 0.5;
+    const dx = targetPx - agent.px;
+    const dy = targetPy - agent.py;
+    if (Math.abs(dx) > FACING_DEADBAND) {
+      setAgentFacing(agent as never, dx > 0 ? 'left' : 'right');
+    }
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const move = agent.speed * dt;
+    if (move >= dist) {
+      agent.px = targetPx;
+      agent.py = targetPy;
+      const fromCx = agent.cx;
+      const fromCy = agent.cy;
+      agent.cx = nx;
+      agent.cy = ny;
+      if (fromCx !== nx || fromCy !== ny) {
+        eventBus.emit('agentMoved', {
+          agent,
+          from: { cx: fromCx, cy: fromCy },
+          to: { cx: nx, cy: ny },
+        });
+      }
+      agent.path.shift();
+      if (agent.path.length === 0) {
+        agent.waiting = IDLE_PAUSE_MIN_S + Math.random() * IDLE_PAUSE_RANGE_S;
+      }
+    } else {
+      agent.px += (dx / dist) * move;
+      agent.py += (dy / dist) * move;
+    }
+    syncAgentMesh(agent as never);
+  }
 }

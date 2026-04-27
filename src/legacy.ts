@@ -187,6 +187,7 @@ import {
   startWorkingState,
   handleAgentLanded,
   pickRandomDestination,
+  updateAgents as updateAgentsImpl,
 } from './game/stations';
 import {
   buildRoomsOverlay,
@@ -1981,77 +1982,15 @@ import { formatRelTime } from './utils/format';
 
   // pickRandomDestination ahora en src/game/stations.ts.
 
+  // updateAgents ahora en src/game/stations.ts. Wrapper inyecta el agente
+  // arrastrado (skip) y la callback de cutscene-control desde window.
   function updateAgents(dt) {
-    for (const agent of agents) {
-      // Si el agente está siendo arrastrado por el usuario, congelarlo (no
-      // se mueve, no salta, no toma decisiones de path).
-      if (agent === draggedAgent) continue;
-      // Si está siendo controlado por la cutscene, skip (la engine de cutscene
-      // maneja su posición directamente).
-      if (typeof window._isCutsceneControlled === 'function' && window._isCutsceneControlled(agent)) continue;
-      // Si está hablando con un panel de diálogo, también queda parado.
-      if (agent.talking) {
-        agent.hopping = false;
-        syncAgentMesh(agent);
-        continue;
-      }
-      // Si está working en una estación, queda en su celda pero sigue dando
-      // pequeños saltitos (señal visual de actividad).
-      if (agent.working) {
-        agent.hopping = true;
-        agent.hopTime += dt * agent.hopFreq * 0.5 * Math.PI;   // hop más lento que caminando
-        syncAgentMesh(agent);
-        continue;
-      }
-      // Esperando entre destinos (idle, no salta)
-      if (agent.waiting > 0) {
-        agent.waiting -= dt;
-        agent.hopping = false;
-        syncAgentMesh(agent);
-        continue;
-      }
-      // Sin path → elegir nuevo destino
-      if (!agent.path || agent.path.length === 0) {
-        if (!pickRandomDestination(agent)) { agent.waiting = 1; continue; }
-      }
-      // Moviéndose: avanza hopTime y aplica salto
-      agent.hopping = true;
-      agent.hopTime += dt * agent.hopFreq * Math.PI;
-
-      // Avanzar hacia siguiente waypoint
-      const [nx, ny] = agent.path[0];
-      const targetPx = nx + 0.5;
-      const targetPy = ny + 0.5;
-      const dx = targetPx - agent.px;
-      const dy = targetPy - agent.py;
-      // Actualizar facing según movimiento en X (eje horizontal de pantalla
-      // en cámara default). Con la cámara isométrica default, el agente caminando
-      // hacia X+ visualmente se ve yendo hacia la izquierda en pantalla, así que
-      // facing 'left' va con dx > 0. Si solo se mueve en Y, mantener la dirección.
-      if (Math.abs(dx) > 0.01) {
-        setAgentFacing(agent, dx > 0 ? 'left' : 'right');
-      }
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const move = agent.speed * dt;
-      if (move >= dist) {
-        agent.px = targetPx; agent.py = targetPy;
-        const fromCx = agent.cx, fromCy = agent.cy;
-        agent.cx = nx; agent.cy = ny;
-        if (fromCx !== nx || fromCy !== ny) {
-          eventBus.emit('agentMoved', {
-            agent, from: { cx: fromCx, cy: fromCy }, to: { cx: nx, cy: ny },
-          });
-        }
-        agent.path.shift();
-        if (agent.path.length === 0) {
-          agent.waiting = 0.3 + Math.random() * 1.2;
-        }
-      } else {
-        agent.px += (dx / dist) * move;
-        agent.py += (dy / dist) * move;
-      }
-      syncAgentMesh(agent);
-    }
+    updateAgentsImpl(agents, dt, {
+      skipAgent: draggedAgent,
+      isCutsceneControlled: typeof window._isCutsceneControlled === 'function'
+        ? window._isCutsceneControlled
+        : undefined,
+    });
   }
 
   // ══════════════════════════════════════════════════════════════
