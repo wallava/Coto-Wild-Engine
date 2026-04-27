@@ -132,6 +132,7 @@ import {
   createCinematicCameraCache,
   isCameraLocked as runtimeIsCameraLocked,
   isCutsceneControlled as runtimeIsCutsceneControlled,
+  computeFadeOpacity as runtimeComputeFadeOpacity,
 } from './cutscene/runtime';
 import {
   updateGizmoPose as editorUpdateGizmoPose,
@@ -4664,25 +4665,12 @@ import { formatRelTime } from './utils/format';
       const overlay = document.getElementById('cs-fade-overlay');
       if (overlay) {
         const cam = ceState.cutscene.camera;
-        // En el editor (sin POV) no aplicamos fade para no oscurecer la vista
-        if (!cam || !cam.povActive) {
-          overlay.style.opacity = '0';
-        } else {
-          const camKfs = cam.keyframes || [];
-          const ph = ceState.playhead;
-          let opacity = 0;
-          for (const kf of camKfs) {
-            if (kf.cut && kf.transition === 'fade') {
-              const fadeRange = (kf.transitionDuration && kf.transitionDuration > 0) ? kf.transitionDuration : 0.5;
-              const dist = Math.abs(kf.t - ph);
-              if (dist < fadeRange) {
-                const a = 1 - (dist / fadeRange);
-                if (a > opacity) opacity = a;
-              }
-            }
-          }
-          overlay.style.opacity = opacity.toFixed(3);
-        }
+        const opacity = runtimeComputeFadeOpacity(
+          cam ? cam.keyframes : null,
+          ceState.playhead,
+          !!(cam && cam.povActive),
+        );
+        overlay.style.opacity = opacity.toFixed(3);
       }
     } catch (err) {
       console.warn('[ceUpdate fade] error:', err);

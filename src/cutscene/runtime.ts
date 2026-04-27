@@ -85,3 +85,33 @@ export function isCameraLocked(editorOpen: boolean, povActive: boolean): boolean
 export function isCutsceneControlled(editorOpen: boolean): boolean {
   return editorOpen;
 }
+
+type CamFadeKf = { t: number; cut?: boolean; transition?: string; transitionDuration?: number };
+
+/**
+ * Calcula la opacidad del overlay de fade entre cuts. Pura.
+ *
+ * Si POV no está activo, devuelve 0 (sin fade en el editor sin POV — no
+ * oscurece la vista). Si está activo, busca kfs con `cut: true` +
+ * `transition: 'fade'` y devuelve el opacity máximo según distancia al
+ * playhead (1 = pleno fade, 0 = fuera de rango).
+ */
+export function computeFadeOpacity(
+  camKeyframes: CamFadeKf[] | null | undefined,
+  playhead: number,
+  povActive: boolean,
+): number {
+  if (!povActive) return 0;
+  let opacity = 0;
+  for (const kf of camKeyframes || []) {
+    if (kf.cut && kf.transition === 'fade') {
+      const fadeRange = (kf.transitionDuration && kf.transitionDuration > 0) ? kf.transitionDuration : 0.5;
+      const dist = Math.abs(kf.t - playhead);
+      if (dist < fadeRange) {
+        const a = 1 - (dist / fadeRange);
+        if (a > opacity) opacity = a;
+      }
+    }
+  }
+  return opacity;
+}
