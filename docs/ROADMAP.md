@@ -20,21 +20,45 @@ Sin esto, todo lo demás está en pausa.
 - [x] **Fase 1**: bulk del monolito a `legacy.ts` (con `@ts-nocheck`),
   imports CDN → ES modules pinneados.
 - [ ] **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con
-  APIs explícitos. **40 módulos extraídos hasta 2026-04-27** (~26%
-  del legacy migrado). Ver `ARCHITECTURE.md` para inventario.
+  APIs explícitos. **52 módulos extraídos hasta 2026-04-27** (~46%
+  del legacy migrado, 7102 líneas restantes). Ver `ARCHITECTURE.md`
+  para inventario.
 - [ ] **Fase 3**: schemas Zod + migrations de datos persistidos.
 - [ ] Verificar paridad con monolito (todo lo que andaba antes anda ahora).
+
+### Sesión 2026-04-27 — extracciones cerradas
+
+- ✅ agent-chassis (spawn + mesh + facing + sync)
+- ✅ agent-drag (Tomodachi-style ghost + spring physics)
+- ✅ agent-selection (highlight ring + raycast click)
+- ✅ agent-status (ensure/clear + position update)
+- ✅ agent-helpers (assignAgentTarget + setAgentMeshOpacity + nearest helpers)
+- ✅ stations (handleAgentLanded + startWorkingState + pickRandomDestination + updateAgents)
+- ✅ needs queries (getAgentMostCriticalNeed + findZoneForNeed + updateAgentNeeds)
+- ✅ prop-drag (ghost wireframe + commit/cancel hooks)
+- ✅ place-mode (catalog placement + door arrow)
+- ✅ wall-build (Sims-style drag con axis-lock)
+- ✅ camera-iso (theta/phi/dist/zoom/pan + updateCamera) — Codex Wave 1
+- ✅ spawners (random prop + remove last + try agent) — Codex Wave 1
+- ✅ paint-tool (state + tool runtime + flood fill) — Codex Wave 2
+- ✅ zone-edit (start/stop + drag add/remove) — Codex Wave 3
+- ✅ loadWorldData (geometry+props+zones — agents quedan en legacy hasta extraer applyWorld completo)
 
 ### Pendientes Fase 2 grandes
 
 - **CUTSCENE EDITOR** — shell + FX + timeline + persistencia (~5000 líneas
-  legacy). La pieza más compleja. Necesita planning dedicado.
-- **spawnAgent + chassis + needs gameplay** (~1600 líneas).
-- **PLACE MODE build** + paint preview update + mouse handlers (~2500 líneas).
+  legacy). La pieza más compleja. **Plan detallado en
+  `docs/CUTSCENE_EXTRACT_PLAN.md`** (104 funciones, 13 subsistemas,
+  destinos cutscene/editor/engine, orden propuesto). Próxima sesión
+  dedicada.
 - **applyWorld + loadSlot + resetWorldToDefault** — cierre persistencia
-  (depende de spawnAgent extraction).
-- **Camera control** (theta/phi/zoom + updateCamera).
-- **buildScene loop + corner posts + props render** — chunk medio del IIFE.
+  (loadWorldData ya extraído; falta agents restoration).
+- **buildScene loop + corner posts + props render** — chunk medio del IIFE,
+  ~300 líneas estructural.
+- **Animate loop + boot** → `main.ts` orchestrator final.
+- **Mouse handlers globales** — bloque grande en legacy, paint-tool y
+  zone-edit ya leen state via getters (Codex review identificó como
+  blocker para paralelizar más extracciones). Próxima sesión.
 - **TECHO ROOF** (~480 líneas) — **NO EXTRAER NUNCA**. Tres intentos
   consecutivos (sesión 2026-04-26 y 2026-04-27) dispararon
   `ReferenceError: Cannot access 'ceState' before initialization` al
@@ -44,7 +68,12 @@ Sin esto, todo lo demás está en pausa.
   decidió reescribir el sistema de roof desde cero cuando llegue. Hasta
   entonces, dejarlo donde está en `legacy.ts` intacto.
 - **Door animation** — eliminada por bug pre-existente, Pablo reescribirá.
-- **Animate loop + boot** → `main.ts` orchestrator final.
+
+### Debt arquitectónico identificado (Codex review 2026-04-27)
+
+- `src/engine/agent-texture.ts` importa `../game/agent-kits` — viola
+  layering "engine no importa game". Pre-existente, fuera de scope de
+  Fase 2 actual. Corregir en sesión de cleanup.
 
 Ver detalle en `ARCHITECTURE.md`.
 
