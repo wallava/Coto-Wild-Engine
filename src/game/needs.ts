@@ -62,3 +62,65 @@ export const WORKING_EMOJI: Record<string, string> = {
   storage:  '📦',
   lobby:    '👋',
 };
+
+// ── Queries de necesidades del agente ─────────────────────────────
+import { getRooms, getZones, type Room, type Zone } from '../engine/rooms';
+import { checkZoneRequirements } from './zone-catalog';
+
+type AgentWithNeeds = {
+  needs: Record<string, number>;
+};
+
+// Need más crítica del agente (menor valor). Devuelve { need, value } o
+// null si todas están sobre threshold OK.
+export function getAgentMostCriticalNeed(
+  agent: AgentWithNeeds,
+): { need: NeedType; value: number } | null {
+  let worst: NeedType | null = null;
+  let worstVal: number = NEED_THRESHOLD_CRITICAL;
+  for (const k of NEED_TYPES) {
+    const v = agent.needs[k];
+    if (v !== undefined && v < worstVal) {
+      worstVal = v;
+      worst = k;
+    }
+  }
+  return worst ? { need: worst, value: worstVal } : null;
+}
+
+// Busca una zona que restaure la need dada y cumpla sus requisitos.
+// Devuelve la más cercana (Manhattan al anchor cell) al agente, o null.
+export type ZoneCandidate =
+  | { type: 'room'; zone: Room }
+  | { type: 'zone'; zone: Zone };
+
+export function findZoneForNeed(
+  need: NeedType,
+  fromCx: number,
+  fromCy: number,
+): ZoneCandidate | null {
+  const candidates: ZoneCandidate[] = [];
+  for (const r of getRooms()) {
+    if (!r.kind) continue;
+    const restores = ZONE_RESTORES[r.kind] ?? {};
+    if (!(need in restores)) continue;
+    if (!checkZoneRequirements(r).ok) continue;
+    candidates.push({ type: 'room', zone: r });
+  }
+  for (const z of getZones()) {
+    if (!z.kind) continue;
+    const restores = ZONE_RESTORES[z.kind] ?? {};
+    if (!(need in restores)) continue;
+    if (!checkZoneRequirements(z).ok) continue;
+    candidates.push({ type: 'zone', zone: z });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const anchorA = a.zone.cells[0] ?? { cx: 0, cy: 0 };
+    const anchorB = b.zone.cells[0] ?? { cx: 0, cy: 0 };
+    const da = Math.abs(anchorA.cx - fromCx) + Math.abs(anchorA.cy - fromCy);
+    const db = Math.abs(anchorB.cx - fromCx) + Math.abs(anchorB.cy - fromCy);
+    return da - db;
+  });
+  return candidates[0]!;
+}

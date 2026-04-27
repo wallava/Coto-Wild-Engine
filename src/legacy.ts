@@ -181,6 +181,8 @@ import {
   WORKING_DURATION,
   NEED_EMOJI,
   WORKING_EMOJI,
+  getAgentMostCriticalNeed,
+  findZoneForNeed,
 } from './game/needs';
 import {
   buildRoomsOverlay,
@@ -212,6 +214,11 @@ import {
   isAgentAt,
   setAgentsGetter as setAgentsStateGetter,
 } from './engine/agents-state';
+import {
+  pickNearestProp,
+  findWalkableAdjacentToProp,
+  pickCellInZone,
+} from './engine/agent-helpers';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -2108,40 +2115,7 @@ import { formatRelTime } from './utils/format';
     console.log('[station] agente working', prop ? `en ${prop.name}` : '(sin prop)', `— zona: ${zoneKind}`);
   }
 
-  function pickNearestProp(propsList, fromCx, fromCy) {
-    let best = null, bestDist = Infinity;
-    for (const p of propsList) {
-      const cx = p.cx + (p.w || 1) / 2;
-      const cy = p.cy + (p.d || 1) / 2;
-      const d = Math.abs(cx - fromCx) + Math.abs(cy - fromCy);
-      if (d < bestDist) { bestDist = d; best = p; }
-    }
-    return best;
-  }
-
-  function findWalkableAdjacentToProp(prop, fromCx, fromCy) {
-    const w = prop.w || 1, d = prop.d || 1;
-    const candidates = [];
-    // Perímetro cardinal del prop (sin diagonales)
-    for (let dx = 0; dx < w; dx++) {
-      candidates.push({ cx: prop.cx + dx, cy: prop.cy - 1 });       // norte
-      candidates.push({ cx: prop.cx + dx, cy: prop.cy + d });       // sur
-    }
-    for (let dy = 0; dy < d; dy++) {
-      candidates.push({ cx: prop.cx - 1, cy: prop.cy + dy });       // oeste
-      candidates.push({ cx: prop.cx + w, cy: prop.cy + dy });       // este
-    }
-    const walkable = candidates.filter(c =>
-      c.cx >= 0 && c.cx < GRID_W && c.cy >= 0 && c.cy < GRID_H && !isBlockedByProp(c.cx, c.cy)
-    );
-    if (walkable.length === 0) return null;
-    walkable.sort((a, b) => {
-      const da = Math.abs(a.cx - fromCx) + Math.abs(a.cy - fromCy);
-      const db = Math.abs(b.cx - fromCx) + Math.abs(b.cy - fromCy);
-      return da - db;
-    });
-    return walkable[0];
-  }
+  // pickNearestProp + findWalkableAdjacentToProp ahora en src/engine/agent-helpers.ts.
 
   function assignAgentTarget(agent, gx, gy) {
     if (!agent) return false;
@@ -8410,61 +8384,9 @@ import { formatRelTime } from './utils/format';
     return getZoneAt(agent.cx, agent.cy);
   }
 
-  // Need más crítica del agente (menor valor). Devuelve { need, value } o null
-  // si todas están sobre threshold OK.
-  function getAgentMostCriticalNeed(agent) {
-    let worst = null;
-    let worstVal = NEED_THRESHOLD_CRITICAL;
-    for (const k of NEED_TYPES) {
-      const v = agent.needs[k];
-      if (v < worstVal) { worstVal = v; worst = k; }
-    }
-    return worst ? { need: worst, value: worstVal } : null;
-  }
+  // getAgentMostCriticalNeed + findZoneForNeed ahora en src/game/needs.ts.
 
-  // Busca una zona que restaure la need dada y cumpla sus requisitos.
-  // Devuelve la zona más cercana al agente, o null.
-  function findZoneForNeed(need, fromCx, fromCy) {
-    const candidates = [];
-    const rooms = getRooms();
-    for (const r of rooms) {
-      if (!r.kind) continue;
-      const restores = ZONE_RESTORES[r.kind] || {};
-      if (!(need in restores)) continue;
-      const check = checkZoneRequirements(r);
-      if (!check.ok) continue;
-      candidates.push({ type: 'room', zone: r });
-    }
-    const zones = getZones();
-    for (const z of zones) {
-      if (!z.kind) continue;
-      const restores = ZONE_RESTORES[z.kind] || {};
-      if (!(need in restores)) continue;
-      const check = checkZoneRequirements(z);
-      if (!check.ok) continue;
-      candidates.push({ type: 'zone', zone: z });
-    }
-    if (candidates.length === 0) return null;
-    // Ordenar por distancia Manhattan al anchor de la zona
-    candidates.sort((a, b) => {
-      const anchorA = a.zone.cells[0] || { cx: 0, cy: 0 };
-      const anchorB = b.zone.cells[0] || { cx: 0, cy: 0 };
-      const da = Math.abs(anchorA.cx - fromCx) + Math.abs(anchorA.cy - fromCy);
-      const db = Math.abs(anchorB.cx - fromCx) + Math.abs(anchorB.cy - fromCy);
-      return da - db;
-    });
-    return candidates[0];
-  }
-
-  // Pick una celda walkable dentro de las celdas de una zona, lo más cerca
-  // posible del agente.
-  function pickCellInZone(zoneCells, fromCx, fromCy) {
-    const walkable = zoneCells
-      .filter(c => !isBlockedByProp(c.cx, c.cy))
-      .map(c => ({ cx: c.cx, cy: c.cy, d: Math.abs(c.cx - fromCx) + Math.abs(c.cy - fromCy) }))
-      .sort((a, b) => a.d - b.d);
-    return walkable[0] || null;
-  }
+  // pickCellInZone ahora en src/engine/agent-helpers.ts.
 
   function updateAgentNeeds(dt) {
     for (const agent of agents) {
