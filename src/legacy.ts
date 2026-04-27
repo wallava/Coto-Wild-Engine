@@ -84,6 +84,19 @@ import {
   setPropMeshOpacity,
 } from './engine/scene-graph';
 import {
+  showSelectionHighlight,
+  clearSelectionHighlight,
+} from './engine/selection-highlight';
+import {
+  getRaycaster,
+  setRaycasterFromEvent,
+  getCellFromEvent,
+  getFloorCellFromEvent,
+  getWorldPointFromEvent,
+  setCanvasGetter,
+  setCameraGetter,
+} from './engine/raycaster';
+import {
   buildSolidWallN,
   buildSolidWallW,
   buildWindowHalfRunN,
@@ -174,6 +187,13 @@ import { buildFloor } from './engine/floor-render';
 import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
 import { getMinCellsForZones, setMinCellsForZones } from './engine/zone-config';
 import {
+  wallHeightForN as engineWallHeightForN,
+  wallHeightForW as engineWallHeightForW,
+  setWallModeGetter,
+  setWallHGetter,
+  setCameraThetaGetter,
+} from './engine/wall-mode';
+import {
   setFloorTileColor,
   setWallFaceColor,
   setPaintColorGetter,
@@ -210,6 +230,8 @@ import { formatRelTime } from './utils/format';
   const WALL_H_DOWN = 12;
   let WALL_H = WALL_H_UP;
   let wallMode = 'up';
+  setWallModeGetter(() => wallMode);   // engine/wall-mode lee desde acá
+  setWallHGetter(() => WALL_H);
   let showStrokes = true;
   setStrokesGetter(() => showStrokes);   // engine/three-primitives lee desde acá
 
@@ -765,7 +787,7 @@ import { formatRelTime } from './utils/format';
   //   'build' → construir/eliminar paredes con drag tipo Sims
   let mode = 'play';
   let selectedProp = null;
-  let highlightMesh = null;
+  // highlightMesh ahora vive en src/engine/selection-highlight.ts.
   let draggedProp = null;
   let dragGhost = null;
   let dragValid = false;
@@ -777,93 +799,14 @@ import { formatRelTime } from './utils/format';
 
   // findPropAt ahora en src/engine/world.ts.
 
+  // Highlight render ahora en src/engine/selection-highlight.ts.
+  // selectProp se queda acá: setea selectedProp + delega al engine.
   function clearHighlight() {
-    if (!highlightMesh) return;
-    scene.remove(highlightMesh);
-    highlightMesh.geometry.dispose();
-    highlightMesh.material.dispose();
-    highlightMesh = null;
+    clearSelectionHighlight();
   }
-
   function selectProp(prop) {
-    clearHighlight();
     selectedProp = prop;
-    if (!prop) return;
-    if ((prop.category || 'floor') === 'wall') {
-      // Highlight wireframe alrededor del cuadro físico
-      const b = getWallPropBounds(prop);
-      if (!b) return;  // wall prop inválido, skip silencioso
-      const PAD = 3;
-      const w = (b.xmax - b.xmin) + PAD * 2;
-      const h = (b.zmax - b.zmin) + PAD * 2;
-      const d = (b.ymax - b.ymin) + PAD * 2;
-      const geo = new THREE.BoxGeometry(w, h, d);
-      const edges = new THREE.EdgesGeometry(geo);
-      const mat = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false });
-      highlightMesh = new THREE.LineSegments(edges, mat);
-      highlightMesh.renderOrder = 999;
-      highlightMesh.position.set(
-        (b.xmin + b.xmax) / 2 - centerX,
-        (b.zmin + b.zmax) / 2,
-        (b.ymin + b.ymax) / 2 - centerZ
-      );
-      scene.add(highlightMesh);
-      return;
-    }
-    if ((prop.category || 'floor') === 'door') {
-      // Highlight wireframe alrededor del marco de la puerta (todo el segmento
-      // de pared incluyendo dintel + hueco).
-      const isHoriz = (prop.side === 'N' || prop.side === 'S');
-      let xmin, xmax, ymin, ymax;
-      if (isHoriz) {
-        xmin = prop.cx * CELL;
-        xmax = (prop.cx + 1) * CELL;
-        ymin = prop.cy * CELL - halfT;
-        ymax = prop.cy * CELL + halfT;
-      } else {
-        xmin = prop.cx * CELL - halfT;
-        xmax = prop.cx * CELL + halfT;
-        ymin = prop.cy * CELL;
-        ymax = (prop.cy + 1) * CELL;
-      }
-      const PAD = 3;
-      const w = (xmax - xmin) + PAD * 2;
-      const d = (ymax - ymin) + PAD * 2;
-      const h = DOOR_OPENING_H + PAD * 2;
-      const geo = new THREE.BoxGeometry(w, h, d);
-      const edges = new THREE.EdgesGeometry(geo);
-      const mat = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false });
-      highlightMesh = new THREE.LineSegments(edges, mat);
-      highlightMesh.renderOrder = 999;
-      highlightMesh.position.set(
-        (xmin + xmax) / 2 - centerX,
-        DOOR_OPENING_H / 2,
-        (ymin + ymax) / 2 - centerZ
-      );
-      scene.add(highlightMesh);
-      return;
-    }
-    const cat = prop.category || 'floor';
-    const w = prop.w * CELL;
-    const d = prop.d * CELL;
-    const h = prop.h + 6;
-    const geo = new THREE.BoxGeometry(w, h, d);
-    const edges = new THREE.EdgesGeometry(geo);
-    const mat = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false });
-    highlightMesh = new THREE.LineSegments(edges, mat);
-    highlightMesh.renderOrder = 999;
-    // Stack: levantar el highlight a la altura del floor base
-    let yCenter = h / 2 - 3;
-    if (cat === 'stack') {
-      const base = getFloorStackBase(prop.cx, prop.cy);
-      yCenter = (base ? base.h : 28) + h / 2 - 3;
-    }
-    highlightMesh.position.set(
-      (prop.cx + prop.w / 2) * CELL - centerX,
-      yCenter,
-      (prop.cy + prop.d / 2) * CELL - centerZ
-    );
-    scene.add(highlightMesh);
+    showSelectionHighlight(prop);
   }
 
   // getFloorStackBase ahora en src/engine/world.ts.
@@ -1213,21 +1156,9 @@ import { formatRelTime } from './utils/format';
     engineAddPaintPreviewWallFace(type, cx, cy, side, wallH, paintColor);
   }
 
-  // Helper: altura de pared en cy/cx. Calcula el wallHeight tipo cutaway igual
-  // que el render. Como buildScene() determina con la cámara actual, usamos
-  // la lógica directa simplificada.
-  function wallHeightForN(cy) {
-    if (wallMode !== 'cutaway') return WALL_H;
-    const camAtSouth = Math.cos(theta) > 0;
-    const front = camAtSouth ? (cy > 0) : (cy < GRID_H);
-    return front ? WALL_H_DOWN : WALL_H;
-  }
-  function wallHeightForW(cx) {
-    if (wallMode !== 'cutaway') return WALL_H;
-    const camAtEast = Math.sin(theta) > 0;
-    const front = camAtEast ? (cx > 0) : (cx < GRID_W);
-    return front ? WALL_H_DOWN : WALL_H;
-  }
+  // wallHeightForN/W ahora en src/engine/wall-mode.ts. Aliases locales.
+  const wallHeightForN = engineWallHeightForN;
+  const wallHeightForW = engineWallHeightForW;
 
   function updatePaintPreview(event) {
     if (mode !== 'paint' || paintDragging || leftDown) {
@@ -1330,14 +1261,7 @@ import { formatRelTime } from './utils/format';
     const banner = document.getElementById('zone-edit-banner');
     if (banner) banner.classList.remove('open');
   }
-  // Raycast al piso, devuelve {cx, cy} o null
-  function getFloorCellFromEvent(event) {
-    setRaycasterFromEvent(event);
-    const targets = sceneObjects.filter(o => o.isMesh && o.userData.floorTile);
-    const hits = _raycaster.intersectObjects(targets, false);
-    if (hits.length === 0) return null;
-    return { ...hits[0].object.userData.floorTile };
-  }
+  // getFloorCellFromEvent ahora en src/engine/raycaster.ts.
   // Aplica add/remove de celda según drag mode
   function applyZoneEditAtEvent(event) {
     if (!zoneEditingId) return;
@@ -1400,12 +1324,7 @@ import { formatRelTime } from './utils/format';
   let wallPreviewMeshes = [];
   let wallHoverMesh = null;
 
-  function getWorldPointFromEvent(event) {
-    setRaycasterFromEvent(event);
-    const point = new THREE.Vector3();
-    if (!_raycaster.ray.intersectPlane(_groundPlane, point)) return null;
-    return { x: point.x + centerX, z: point.z + centerZ };
-  }
+  // getWorldPointFromEvent ahora en src/engine/raycaster.ts.
 
   function getNearestEdgeFromPoint(p) {
     if (!p) return null;
@@ -2397,27 +2316,12 @@ import { formatRelTime } from './utils/format';
   // Wireado a enterPlaceMode al final del IIFE (cuando enterPlaceMode esté declarado).
   setOnPlaceTemplate((tmpl) => enterPlaceMode(tmpl));
 
-  // Raycaster compartido
-  const _raycaster = new THREE.Raycaster();
-  const _mouseVec = new THREE.Vector2();
-  const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-  function setRaycasterFromEvent(event) {
-    const rect = renderer.domElement.getBoundingClientRect();
-    _mouseVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    _mouseVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    _raycaster.setFromCamera(_mouseVec, camera);
-  }
-
-  function getCellFromEvent(event) {
-    setRaycasterFromEvent(event);
-    const point = new THREE.Vector3();
-    if (!_raycaster.ray.intersectPlane(_groundPlane, point)) return null;
-    const cx = Math.floor((point.x + centerX) / CELL);
-    const cy = Math.floor((point.z + centerZ) / CELL);
-    if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return null;
-    return { cx, cy };
-  }
+  // Raycaster + helpers ahora en src/engine/raycaster.ts.
+  // Wire de canvas + camera (legacy mantiene refs locales).
+  setCanvasGetter(() => renderer.domElement);
+  setCameraGetter(() => camera);
+  // Alias local para callsites que leen _raycaster directamente.
+  const _raycaster = getRaycaster();
 
   function getPropFromEvent(event) {
     setRaycasterFromEvent(event);
@@ -3977,6 +3881,7 @@ import { formatRelTime } from './utils/format';
   //  CAMERA — iso ortográfica con rotación manual
   // ══════════════════════════════════════════════════════════════
   let theta = Math.PI / 4;                       // azimuth (alrededor de Y)
+  setCameraThetaGetter(() => theta);   // engine/wall-mode lee theta para cutaway
   let phi = Math.atan(1 / Math.sqrt(2));         // elevación, ~35.264° = iso real
   const dist = 1500;
   let camZoom = 1;
