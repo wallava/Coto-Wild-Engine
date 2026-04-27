@@ -7,6 +7,7 @@
 // localStorage.
 
 import { DEFAULT_MIN_CELLS_FOR_ZONES } from './state';
+import { computeFloodFillFloor } from './rooms';
 
 const STORAGE_KEY = 'cwe_min_cells_for_zones';
 
@@ -35,4 +36,12 @@ export function setMinCellsForZones(n: number | string): void {
   } catch {
     // Sin localStorage — solo cambio en memoria
   }
+}
+
+// ¿La celda pertenece a un componente conexo lo suficiente grande para
+// admitir zonas? Habitaciones más chicas que minCellsForZones no admiten
+// zonas (no tiene sentido sub-dividir un closet o baño).
+export function canPaintZoneCell(cx: number, cy: number): boolean {
+  const component = computeFloodFillFloor(cx, cy);
+  return component.length >= _minCellsForZones;
 }

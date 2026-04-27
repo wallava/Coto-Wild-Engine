@@ -196,6 +196,7 @@ import {
   setOnSaveSlot,
 } from './ui/slots-panel';
 import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
+import { showZoneEditBanner, hideZoneEditBanner } from './ui/zone-edit-banner';
 import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
 import { buildFloor } from './engine/floor-render';
 import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
@@ -203,7 +204,11 @@ import {
   isAgentAt,
   setAgentsGetter as setAgentsStateGetter,
 } from './engine/agents-state';
-import { getMinCellsForZones, setMinCellsForZones } from './engine/zone-config';
+import {
+  getMinCellsForZones,
+  setMinCellsForZones,
+  canPaintZoneCell,
+} from './engine/zone-config';
 import {
   wallHeightForN as engineWallHeightForN,
   wallHeightForW as engineWallHeightForW,
@@ -1017,16 +1022,7 @@ import { formatRelTime } from './utils/format';
     buildRoomsOverlay();
     renderer.domElement.style.cursor = '';
   }
-  function showZoneEditBanner(zoneName) {
-    const banner = document.getElementById('zone-edit-banner');
-    if (!banner) return;
-    document.getElementById('zone-edit-name').textContent = zoneName;
-    banner.classList.add('open');
-  }
-  function hideZoneEditBanner() {
-    const banner = document.getElementById('zone-edit-banner');
-    if (banner) banner.classList.remove('open');
-  }
+  // showZoneEditBanner + hideZoneEditBanner ahora en src/ui/zone-edit-banner.ts.
   // getFloorCellFromEvent ahora en src/engine/raycaster.ts.
   // Aplica add/remove de celda según drag mode
   function applyZoneEditAtEvent(event) {
@@ -1042,12 +1038,7 @@ import { formatRelTime } from './utils/format';
     setZoneCell(zoneEditingId, cell.cx, cell.cy, zoneEditDragMode === 'add');
   }
 
-  // Devuelve true si la celda pertenece a un componente conexo lo suficiente
-  // grande para admitir zonas. Habitaciones chicas (< minCellsForZones) no.
-  function canPaintZoneCell(cx, cy) {
-    const component = computeFloodFillFloor(cx, cy);
-    return component.length >= getMinCellsForZones();
-  }
+  // canPaintZoneCell ahora en src/engine/zone-config.ts.
   function floodFillAtEvent(event) {
     setRaycasterFromEvent(event);
     const targets = sceneObjects.filter(o =>
