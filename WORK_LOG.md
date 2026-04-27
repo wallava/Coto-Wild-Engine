@@ -109,6 +109,15 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**TASK Tests críticos: cutscene/inheritance.ts (16 casos)**
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `tests/cutscene/inheritance.test.ts` (nuevo, 165 LOC), `package.json` (script `test`, dep `vitest@^3.2.4`)
+- 16 tests cubriendo: `inheritanceChain` (5), `lastKfWithInheritance` (6), `kfIsVisible` (5).
+- Vitest 4.1.5 inicialmente instalado pero falló por bug rolldown native binding en darwin-arm64. Downgradé a vitest@^3.2.4 (estable). 
+- `npm run test` → 16/16 ✅. tsc ✅, smoke-test ✅.
+- `engine/coords.ts` mencionado en objetivos no existe en el repo. SKIP-AMBIGUO: el archivo no fue creado en migraciones previas. Si Pablo quiere helpers de coords (`cellToWorld`, `worldToCell`) extraídos, requiere nueva tarea.
+
 **DIFERIDO CERRADO Wave D fade overlay opacity**: → `src/cutscene/runtime.ts::computeFadeOpacity`
 - Tipo: CLAUDE
 - Status: ✅ Done (parcial — body de ceUpdate sigue mayormente en legacy)
