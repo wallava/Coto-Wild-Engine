@@ -66,6 +66,35 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 15:55 - [FASE 4 INTERACTIVA] R2 shots + camera-moves + tests (paralelo)
+
+**Plan inicial**: Codex paralelo. shots.ts (5 shot types puros), camera-moves.ts (4 moves), tests con invariantes.
+
+**Review loop con Codex**: 1 round.
+- 2 bloqueantes aceptados:
+  1. twoShot valida runtime cardinalidad → console.warn + fallback (input dinámico puede romper TS tuple type).
+  2. Fórmula concreta: `distance = clamp(80, 600, 200 * 50 / lens)`. Reference: lens=50 → distance=200.
+- Sugerencias aceptadas: shots puras sin logging side-effect (solo twoShot warn de cardinalidad), defaults camera-moves en world units (350=5cells, 140=2cells), pan recibe Vec3 directos, pushIn position constante (zoom puro), tests con invariantes geométricas no valores exactos.
+
+**Tasks**:
+
+### CODEX-3: shots.ts (delegated, session a504b5d16e893a3e3)
+- 138 LOC. wideEstablishing, mediumShot, closeUp, twoShot, OTS.
+- Defaults lens: 24/50/85/35/50. Ángulo iso 45°/30°.
+
+### CODEX-4: camera-moves.ts (delegated, session ab10588c41100db1b)
+- 103 LOC. dollyIn, pullOut, pan, pushIn.
+- pushIn: lens cambia, position constante.
+
+### CODEX-7B: tests (delegated, session a783a473f00e9c19c)
+- shots.test.ts (13 tests) + camera-moves.test.ts (7 tests).
+- Invariantes geométricas: lens default per shot, distance positiva, dolly se acerca, pushIn lens crece, etc.
+
+**Validación**: tsc ✅, smoke ✅, npm test 153/153 ✅.
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 15:50 - [FASE 4 INTERACTIVA] R1 parser + schema-ast + tests (paralelo)
 
 **Plan inicial**: contrato AST fijo + Round 1 paralelo. CODEX-1 parser, CODEX-2 schema-ast, CODEX-7A tests. Reparto recalibrado a Codex (tokens Claude bajos).
