@@ -76,6 +76,18 @@ import {
   saveCurrentCutscene as editorSaveCurrentCutscene,
 } from './editor/persistence';
 import {
+  formatTime as timelineFormatTime,
+  trackAreaWidth as timelineTrackAreaWidth,
+  rulerWidth as timelineRulerWidth,
+  timeToPixel as timelineTimeToPixel,
+  pixelToTime as timelinePixelToTime,
+  clampScroll as timelineClampScroll,
+  updateZoomIndicator as timelineUpdateZoomIndicator,
+  updatePlayheadPosition as timelineUpdatePlayheadPosition,
+  renderRuler as timelineRenderRuler,
+  type TimelineViewport,
+} from './editor/timeline';
+import {
   ensureSceneConsistency as cutsceneEnsureSceneConsistency,
   computeSceneView as cutsceneComputeSceneView,
   sceneAt as cutsceneSceneAt,
@@ -3256,12 +3268,16 @@ import { formatRelTime } from './utils/format';
     }
   });
 
-  function ceFormatTime(t) {
-    const m = Math.floor(t / 60);
-    const s = Math.floor(t % 60);
-    const tenth = Math.floor((t * 10) % 10);
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenth}`;
+  function ceTimelineViewport(): TimelineViewport {
+    return {
+      duration: ceState.cutscene.duration,
+      zoom: ceState.zoom || 1,
+      scrollX: ceState.scrollX || 0,
+    };
   }
+
+  const ceFormatTime = timelineFormatTime;
+
   function ceUpdateTimeDisplay() {
     ceTimeCurrent.textContent = ceFormatTime(ceState.playhead);
     ceTimeTotal.textContent = ceFormatTime(ceState.cutscene.duration);
@@ -3276,89 +3292,33 @@ import { formatRelTime } from './utils/format';
     }
   }
 
-  // Track-area width (excluyendo el label de 110px)
   function ceTrackAreaWidth() {
-    const tl = ceTracks.querySelector('.ce-track-area');
-    if (tl) return tl.getBoundingClientRect().width;
-    // Fallback: timeline width minus label width
-    return Math.max(100, ceTimeline.clientWidth - 110);
+    return timelineTrackAreaWidth(ceTracks, ceTimeline);
   }
   function ceRulerWidth() {
-    return Math.max(100, ceTimeline.clientWidth - 110);
+    return timelineRulerWidth(ceTimeline);
   }
   function ceTimeToPixel(t, w) {
-    // w = viewport width (visible). El "ancho total" virtual es w * zoom.
-    const totalW = w * (ceState.zoom || 1);
-    const px = (t / ceState.cutscene.duration) * totalW;
-    return px - (ceState.scrollX || 0);
+    return timelineTimeToPixel(t, w, ceTimelineViewport());
   }
   function cePixelToTime(px, w) {
-    const totalW = w * (ceState.zoom || 1);
-    const realPx = px + (ceState.scrollX || 0);
-    return Math.max(0, Math.min(ceState.cutscene.duration, (realPx / totalW) * ceState.cutscene.duration));
+    return timelinePixelToTime(px, w, ceTimelineViewport());
   }
-  // Clamp scrollX para que no exceda los límites
   function ceClampScroll() {
     const w = ceRulerWidth();
-    const totalW = w * (ceState.zoom || 1);
-    const maxScroll = Math.max(0, totalW - w);
-    ceState.scrollX = Math.max(0, Math.min(maxScroll, ceState.scrollX || 0));
+    ceState.scrollX = timelineClampScroll(w, ceTimelineViewport());
   }
 
-  // Sync indicador visual de zoom (text + click reset)
   function ceUpdateZoomIndicator() {
-    const ind = document.getElementById('ce-zoom-indicator');
-    if (!ind) return;
-    const pct = Math.round((ceState.zoom || 1) * 100);
-    ind.textContent = '🔍 ' + pct + '%';
+    timelineUpdateZoomIndicator(ceState.zoom || 1);
   }
 
   function ceUpdatePlayheadPosition() {
-    const labelW = 110;
-    const w = ceRulerWidth();
-    const pxRel = ceTimeToPixel(ceState.playhead, w);
-    cePlayhead.style.left = `${labelW + pxRel}px`;
-    // Ocultar visualmente si está fuera del viewport scrolleado
-    if (pxRel < -10 || pxRel > w + 10) {
-      cePlayhead.style.opacity = '0.25';
-    } else {
-      cePlayhead.style.opacity = '';
-    }
+    timelineUpdatePlayheadPosition(cePlayhead, ceState.playhead, ceTimeline, ceTimelineViewport());
   }
 
   function ceRenderRuler() {
-    ceUpdateZoomIndicator();
-    const w = ceRulerWidth();
-    const labelW = 110;
-    ceRuler.innerHTML = '';
-    ceRuler.style.paddingLeft = `${labelW}px`;
-    // Densidad de marcas según zoom: si zoom alto, mostrar marcas más finas.
-    // Calculamos el step minor en seconds para que las marcas no se aglomeren.
-    const z = ceState.zoom || 1;
-    let minorStep = 1;     // 1s
-    let majorStep = 5;     // 5s
-    if (z >= 4)  { minorStep = 0.25; majorStep = 1; }
-    else if (z >= 2) { minorStep = 0.5; majorStep = 2; }
-    else if (z < 0.5) { minorStep = 2; majorStep = 10; }
-    const dur = ceState.cutscene.duration;
-    for (let s = 0; s <= dur + 0.001; s += minorStep) {
-      const sRounded = Math.round(s * 1000) / 1000;
-      const isMajor = (Math.abs(sRounded % majorStep) < 0.01) || (Math.abs((sRounded % majorStep) - majorStep) < 0.01);
-      const px = labelW + ceTimeToPixel(sRounded, w);
-      // Skip marcas fuera del viewport (optimización)
-      if (px < labelW - 20 || px > labelW + w + 20) continue;
-      const mark = document.createElement('div');
-      mark.className = isMajor ? 'ce-ruler-mark' : 'ce-ruler-mark minor';
-      mark.style.left = `${px}px`;
-      ceRuler.appendChild(mark);
-      if (isMajor) {
-        const lbl = document.createElement('div');
-        lbl.className = 'ce-ruler-label';
-        lbl.style.left = `${px}px`;
-        lbl.textContent = ceFormatTime(sRounded);
-        ceRuler.appendChild(lbl);
-      }
-    }
+    timelineRenderRuler(ceRuler, ceTimeline, ceTimelineViewport());
   }
 
   // ══════════════════════════════════════════════════════════════
