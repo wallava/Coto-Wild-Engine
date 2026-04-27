@@ -323,7 +323,7 @@ Asignación de quién ejecuta:
 
 Claude le pide review a Codex. Codex puede objetar, sugerir, o pedir clarificaciones. Claude evalúa, ajusta el plan si corresponde, y puede pedir re-review.
 
-**Hasta 3 rounds máximo** (en modo nocturno: 2 rounds máximo, ver sección dedicada):
+**Hasta 2 rounds máximo** (en modo nocturno también: 2 rounds máximo, ver sección dedicada):
 
 ```
 Round 1:
@@ -339,9 +339,7 @@ Round 2 (si aplica):
   Codex → respuesta
   Claude → evalúa de nuevo
 
-Round 3 (si aplica): ídem.
-
-Después de 3 rounds:
+Después de 2 rounds:
   Si Claude y Codex no convergen → escalá a Pablo con un resumen de la discusión. Pablo decide.
 ```
 
@@ -554,9 +552,9 @@ El modo nocturno se desactiva automáticamente cuando:
 - Pero solo podés ejecutar tareas que están en la **whitelist** (ver abajo).
 - Para todo lo demás, **saltá la tarea, no escales a Pablo**.
 
-#### Loop de review reducido a 2 rounds
+#### Loop de review (mismo límite que modo normal)
 
-En modo nocturno, hasta 2 rounds máximo de review con Codex (no 3). Si después de 2 rounds no convergen:
+En modo nocturno, hasta 2 rounds máximo de review con Codex (igual que el flujo normal). Si después de 2 rounds no convergen:
 
 - **No escales a Pablo** (no está disponible).
 - Ejecutá el plan original como Claude lo armó.
