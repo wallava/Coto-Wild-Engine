@@ -75,7 +75,6 @@ import {
   blocksWallW,
   isCorner,
   isAllWindowCorner,
-  getAdjacentCell,
   getWallPropBounds,
   getNearestEdgeFromPoint,
   findNearestPlaceableWallFace,
@@ -108,7 +107,6 @@ import {
   getFloorCellFromEvent,
   getWorldPointFromEvent,
   getPropFromEvent,
-  getFloorOrWallFaceFromEvent,
   setCanvasGetter,
   setCameraGetter,
 } from './engine/raycaster';
@@ -124,8 +122,6 @@ import {
 } from './engine/walls-render';
 import {
   pickRoomColor,
-  computeFloodFillFloor,
-  computeFloodFillRoomFaces,
   computeAllRooms,
   reconcileRoomMeta,
   getRooms,
@@ -295,8 +291,6 @@ import {
   canPaintZoneCell,
 } from './engine/zone-config';
 import {
-  wallHeightForN as engineWallHeightForN,
-  wallHeightForW as engineWallHeightForW,
   setWallModeGetter,
   setWallHGetter,
   setCameraThetaGetter,
@@ -316,17 +310,17 @@ import {
   updateCamera as updateCameraImpl,
 } from './engine/camera-iso';
 import {
-  setFloorTileColor,
-  setWallFaceColor,
-  setPaintColorGetter,
-  floodFillFloor as engineFloodFillFloor,
-  floodFillRoomWalls as engineFloodFillRoomWalls,
-} from './engine/paint';
-import {
-  clearPaintPreview,
-  addPaintPreviewTile as engineAddPaintPreviewTile,
-  addPaintPreviewWallFace as engineAddPaintPreviewWallFace,
-} from './engine/paint-preview';
+  initPaintTool,
+  paintAtEvent,
+  floodFillAtEvent,
+  updatePaintPreview,
+  setPaintColor,
+  isPaintDragging,
+  beginPaintDrag,
+  endPaintDrag,
+  invalidatePaintPreview,
+} from './engine/paint-tool';
+import { clearPaintPreview } from './engine/paint-preview';
 import { formatRelTime } from './utils/format';
 // engine/door-anim revertido — door animation in legacy hasta resolver bug
 
@@ -637,50 +631,10 @@ import { formatRelTime } from './utils/format';
   // State + lógica viven en src/engine/wall-build.ts. Hooks de init más abajo.
 
   // ── Pintura ──
-  // paintColor: número (0xRRGGBB) o null. null = "limpiar" (volver al default).
-  let paintColor = 0xc6bca2;
-  setPaintColorGetter(() => paintColor);   // engine/paint lee desde acá
-  let paintDragging = false;     // mouse down + arrastra para pintar continuo
-  let paintLastKey = null;       // cache del último target pintado (evita repetir buildScene)
-
-  // paintFloorTile + paintWallFace ahora son wrappers thin sobre
-  // setFloorTileColor + setWallFaceColor del engine + render + save.
-  function paintFloorTile(cx, cy) {
-    setFloorTileColor(cx, cy);
-    buildScene();
-    markWorldChanged();
-  }
-  function paintWallFace(face) {
-    if (!face) return;
-    const type = (face.side === 'N' || face.side === 'S') ? 'wallN' : 'wallW';
-    setWallFaceColor(type, face.cx, face.cy, face.side);
-    buildScene();
-    markWorldChanged();
-  }
-
-  // setFloorTileColor + setWallFaceColor ahora en src/engine/paint.ts.
-
-  // Raycast directo contra paredes y tiles del piso. El primer hit decide
-  // qué se pinta (no proyectamos al piso porque eso falla cuando hay paredes
-  // altas, muebles, o cuadros que se interponen visualmente).
-  function paintAtEvent(event) {
-    const target = getFloorOrWallFaceFromEvent(event);
-    if (!target) return;
-    if (target.kind === 'floor') {
-      const key = `f:${target.cx},${target.cy}`;
-      if (key === paintLastKey) return;
-      paintLastKey = key;
-      paintFloorTile(target.cx, target.cy);
-    } else {
-      const key = `w:${target.type},${target.cx},${target.cy},${target.side}`;
-      if (key === paintLastKey) return;
-      paintLastKey = key;
-      paintWallFace({ type: target.type, cx: target.cx, cy: target.cy, side: target.side });
-    }
-  }
-
-  // ── Flood fill (Shift+click) ──
-  // computeFloodFillFloor + computeFloodFillRoomFaces ahora viven en src/engine/rooms.ts.
+  // Runtime + state de pintura viven en src/engine/paint-tool.ts.
+  // paintShiftHeld y lastMouseEvent quedan acá hasta extraer mouse handlers.
+  let paintShiftHeld = false;
+  let lastMouseEvent = null;
 
   // ══════════════════════════════════════════════════════════════
   //  HABITACIONES CERRADAS (A.4) + ZONAS ABIERTAS (A.5)
@@ -706,78 +660,17 @@ import { formatRelTime } from './utils/format';
 
 
   // getZoneAt + getZones + createZone + deleteZone + setZoneCell ahora en src/engine/rooms.ts.
-
-  // floodFillFloor + floodFillRoomWalls ahora en src/engine/paint.ts.
-  // Wrappers locales agregan render + markWorldChanged.
-  function floodFillFloor(startCx, startCy) {
-    engineFloodFillFloor(startCx, startCy);
-    buildScene();
-    markWorldChanged();
-  }
-  function floodFillRoomWalls(startCx, startCy) {
-    engineFloodFillRoomWalls(startCx, startCy);
-    buildScene();
-    markWorldChanged();
-  }
-
-  // getAdjacentCell ahora en src/engine/wall-queries.ts.
-
-  // ── Sistema de preview de pintura (overlays translúcidos) ──
-  // Cuando el usuario hover sobre piso o pared en modo Pintar (sin click),
-  // se muestra un overlay del color paintColor sobre lo que se pintaría.
-  // Si tiene shift, el preview cubre toda la habitación / pared continua.
-  // paintPreviewMeshes ahora vive en src/engine/paint-preview.ts.
-  let paintPreviewKey = null;
-  let paintShiftHeld = false;
-  let lastMouseEvent = null;
-
-  // Render del preview ahora en src/engine/paint-preview.ts. Wrappers locales
-  // pasan el color actual + wallH calculada (deps a wallMode/theta siguen
-  // en legacy). Mantienen paintPreviewKey para evitar rebuilds innecesarios.
-  function addPaintPreviewTile(cx, cy) {
-    engineAddPaintPreviewTile(cx, cy, paintColor);
-  }
-  function addPaintPreviewWallFace(type, cx, cy, side) {
-    const wallH = (type === 'wallN') ? wallHeightForN(cy) : wallHeightForW(cx);
-    engineAddPaintPreviewWallFace(type, cx, cy, side, wallH, paintColor);
-  }
-
-  // wallHeightForN/W ahora en src/engine/wall-mode.ts. Aliases locales.
-  const wallHeightForN = engineWallHeightForN;
-  const wallHeightForW = engineWallHeightForW;
-
-  function updatePaintPreview(event) {
-    if (mode !== 'paint' || paintDragging || leftDown) {
-      clearPaintPreview();
-      return;
-    }
-    if (!event) { clearPaintPreview(); return; }
-    const hit = getFloorOrWallFaceFromEvent(event);
-    if (!hit) { clearPaintPreview(); return; }
-    const shift = paintShiftHeld;
-    const target = { ...hit, shift, color: paintColor };
-    const newKey = JSON.stringify(target);
-    if (newKey === paintPreviewKey) return;
-    paintPreviewKey = newKey;
-    clearPaintPreview();
-    paintPreviewKey = newKey;
-    if (target.kind === 'floor') {
-      if (shift) {
-        for (const c of computeFloodFillFloor(target.cx, target.cy)) addPaintPreviewTile(c.cx, c.cy);
-      } else {
-        addPaintPreviewTile(target.cx, target.cy);
-      }
-    } else {
-      if (shift) {
-        const start = getAdjacentCell(target.type, target.cx, target.cy, target.side);
-        for (const f of computeFloodFillRoomFaces(start.cx, start.cy)) {
-          addPaintPreviewWallFace(f.type, f.cx, f.cy, f.side);
-        }
-      } else {
-        addPaintPreviewWallFace(target.type, target.cx, target.cy, target.side);
-      }
-    }
-  }
+  initPaintTool({
+    onAfterPaint: () => {
+      buildScene();
+      markWorldChanged();
+    },
+    onSyncUI: (color) => syncPaintUI(color),
+    getMode: () => mode,
+    getPaintShiftHeld: () => paintShiftHeld,
+    getLastMouseEvent: () => lastMouseEvent,
+    getIsLeftDown: () => leftDown,
+  });
 
   // ══════════════════════════════════════════════════════════════
   //  ROOMS OVERLAY — overlay translúcido por habitación
@@ -831,17 +724,6 @@ import { formatRelTime } from './utils/format';
   }
 
   // canPaintZoneCell ahora en src/engine/zone-config.ts.
-  function floodFillAtEvent(event) {
-    const target = getFloorOrWallFaceFromEvent(event);
-    if (!target) return;
-    if (target.kind === 'floor') {
-      floodFillFloor(target.cx, target.cy);
-    } else {
-      // Determinar la celda adyacente a esa cara (la que está "del lado pintado")
-      const start = getAdjacentCell(target.type, target.cx, target.cy, target.side);
-      floodFillRoomWalls(start.cx, start.cy);
-    }
-  }
   // Wall drag state ahora en src/engine/wall-build.ts.
   // wallPreviewMeshes + wallHoverMesh ahora en src/engine/wall-preview-render.ts.
 
@@ -2245,9 +2127,8 @@ import { formatRelTime } from './utils/format';
           floodFillAtEvent(e);
         } else {
           // Single paint + habilitar drag continuo
-          paintLastKey = null;
+          beginPaintDrag();
           paintAtEvent(e);
-          paintDragging = true;
         }
       } else if (mode === 'play') {
         // Click sobre agente → arranca drag (Two Point Hospital style).
@@ -2352,7 +2233,7 @@ import { formatRelTime } from './utils/format';
       }
     }
     // Preview de pintura en modo paint (sin click activo)
-    if (mode === 'paint' && !leftDown && !paintDragging) {
+    if (mode === 'paint' && !leftDown && !isPaintDragging()) {
       updatePaintPreview(e);
     }
     // Hover de pared en build mode (sin drag activo)
@@ -2417,7 +2298,7 @@ import { formatRelTime } from './utils/format';
         const blockedFurn = pathBlocksOnFurniture(path, isErase);
         showWallPreview(path, getWallDragOffAxis() || blockedFurn);
       }
-    } else if (leftDown && paintDragging) {
+    } else if (leftDown && isPaintDragging()) {
       paintAtEvent(e);
     }
 
@@ -2511,9 +2392,8 @@ import { formatRelTime } from './utils/format';
         }
       }
       // Reset estado de pintura (independiente de los demás drags)
-      if (paintDragging) {
-        paintDragging = false;
-        paintLastKey = null;
+      if (isPaintDragging()) {
+        endPaintDrag();
       }
       // Reset estado de zone edit
       if (zoneEditDragging) {
@@ -2544,8 +2424,8 @@ import { formatRelTime } from './utils/format';
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Shift') {
       paintShiftHeld = true;
-      if (mode === 'paint' && !paintDragging && !leftDown && lastMouseEvent) {
-        paintPreviewKey = null;
+      if (mode === 'paint' && !isPaintDragging() && !leftDown && lastMouseEvent) {
+        invalidatePaintPreview();
         updatePaintPreview(lastMouseEvent);
       }
     }
@@ -2596,8 +2476,8 @@ import { formatRelTime } from './utils/format';
     else if (e.key === '.' || e.key === '>') keyRight = false;
     else if (e.key === 'Shift') {
       paintShiftHeld = false;
-      if (mode === 'paint' && !paintDragging && !leftDown && lastMouseEvent) {
-        paintPreviewKey = null;
+      if (mode === 'paint' && !isPaintDragging() && !leftDown && lastMouseEvent) {
+        invalidatePaintPreview();
         updatePaintPreview(lastMouseEvent);
       }
     }
@@ -2714,17 +2594,7 @@ import { formatRelTime } from './utils/format';
     e.target.classList.toggle('active', next !== 'solid');
   });
 
-  // Paint UI ahora vive en src/ui/paint-panel.ts. Acá queda el wrapper que
-  // sincroniza paintColor + dispara refresh de preview (deps a mode/leftDown
-  // que siguen en legacy).
-  function setPaintColor(c) {
-    paintColor = c;
-    syncPaintUI(c);
-    if (mode === 'paint' && !paintDragging && !leftDown && lastMouseEvent) {
-      paintPreviewKey = null;
-      updatePaintPreview(lastMouseEvent);
-    }
-  }
+  // Paint UI vive en src/ui/paint-panel.ts; paint-tool sincroniza state + preview.
   setOnPaintColorChange((c) => setPaintColor(c));
   initPaintPanel();
   setPaintColor(0xc6bca2);   // estado inicial: el primer swatch (beige default)
