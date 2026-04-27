@@ -188,3 +188,86 @@ export function serializeWorld(): WorldData {
     })),
   };
 }
+
+// Serializa + escribe en cwe_current. Dispara worldSaved.
+export function saveToStorage(): void {
+  try {
+    localStorage.setItem(SLOT_CURRENT_KEY, JSON.stringify(serializeWorld()));
+    eventBus.emit('worldSaved', {});
+  } catch (e) {
+    console.error('[save] failed:', e);
+  }
+}
+
+// Debounce de save: marca cambio, guarda 400ms después. Cualquier llamada
+// dentro de la ventana resetea el timer (= solo se guarda al estar 400ms
+// sin más mutaciones).
+let _saveTimer: number | null = null;
+export function markWorldChanged(): void {
+  if (_saveTimer !== null) clearTimeout(_saveTimer);
+  _saveTimer = window.setTimeout(saveToStorage, 400);
+}
+
+// applyWorldFromData vive en legacy hasta que applyWorld se extraiga.
+// Recibimos via callback para que loadFromStorage pueda invocarlo.
+let _applyWorldFromData: (data: WorldData, source: string) => void = () => {};
+
+export function setApplyWorldFromDataCallback(
+  cb: (data: WorldData, source: string) => void,
+): void {
+  _applyWorldFromData = cb;
+}
+
+// Intenta cargar el mundo: primero cwe_current, después migrar v2 → current,
+// después v1 → current con migración de side. Devuelve true si encontró
+// algo. false → caller debe usar defaultWorld.
+export function loadFromStorage(): boolean {
+  // 1. Intentar current
+  try {
+    const raw = localStorage.getItem(SLOT_CURRENT_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (isValidWorldData(data)) {
+        _applyWorldFromData(data, 'storage');
+        console.log('[load] current restored:', data.props.length, 'muebles');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('[load current] failed:', e);
+  }
+  // 2. Migrar v2 → current
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_V2);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (isValidWorldData(data)) {
+        _applyWorldFromData(data, 'storage');
+        saveToStorage();
+        localStorage.removeItem(STORAGE_KEY_V2);
+        console.log('[load] v2 migrated to current:', data.props.length, 'muebles');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('[load v2 migration] failed:', e);
+  }
+  // 3. Migrar v1 → current
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_V1);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (isValidWorldData(data)) {
+        migrateV1WorldData(data);
+        _applyWorldFromData(data, 'storage');
+        saveToStorage();
+        localStorage.removeItem(STORAGE_KEY_V1);
+        console.log('[load] v1 migrated to current:', data.props.length, 'muebles');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('[load v1 migration] failed:', e);
+  }
+  return false;
+}

@@ -43,6 +43,10 @@ import {
   saveSlot as persistSaveSlot,
   serializeWorld as engineSerializeWorld,
   setAgentsGetter as setPersistenceAgentsGetter,
+  saveToStorage as engineSaveToStorage,
+  loadFromStorage as engineLoadFromStorage,
+  setApplyWorldFromDataCallback,
+  markWorldChanged as engineMarkWorldChanged,
 } from './engine/persistence';
 import {
   initThoughtBubbles,
@@ -418,66 +422,15 @@ import { formatRelTime } from './utils/format';
       zones: data.zones,
     }, source);
   }
+  // engine/persistence loadFromStorage llama applyWorldFromData via callback.
+  setApplyWorldFromDataCallback(applyWorldFromData);
 
-  function saveToStorage() {
-    try {
-      localStorage.setItem(SLOT_CURRENT_KEY, JSON.stringify(serializeWorld()));
-      eventBus.emit('worldSaved', {});
-    } catch (e) {
-      console.error('[save] failed:', e);
-    }
-  }
+  // saveToStorage ahora en src/engine/persistence.ts.
+  const saveToStorage = engineSaveToStorage;
 
-  function loadFromStorage() {
-    // 1. Intentar current
-    try {
-      const raw = localStorage.getItem(SLOT_CURRENT_KEY);
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (isValidWorldData(data)) {
-          applyWorldFromData(data, 'storage');
-          console.log('[load] current restored:', data.props.length, 'muebles');
-          return true;
-        }
-      }
-    } catch (e) {
-      console.error('[load current] failed:', e);
-    }
-    // 2. Migrar v2 → current
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_V2);
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (isValidWorldData(data)) {
-          applyWorldFromData(data, 'storage');
-          saveToStorage();   // graba en current
-          localStorage.removeItem(STORAGE_KEY_V2);
-          console.log('[load] v2 migrated to current:', data.props.length, 'muebles');
-          return true;
-        }
-      }
-    } catch (e) {
-      console.error('[load v2 migration] failed:', e);
-    }
-    // 3. Migrar v1 → current
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_V1);
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (isValidWorldData(data)) {
-          migrateV1WorldData(data);
-          applyWorldFromData(data, 'storage');
-          saveToStorage();
-          localStorage.removeItem(STORAGE_KEY_V1);
-          console.log('[load] v1 migrated to current:', data.props.length, 'muebles');
-          return true;
-        }
-      }
-    } catch (e) {
-      console.error('[load v1 migration] failed:', e);
-    }
-    return false;
-  }
+  // loadFromStorage ahora en src/engine/persistence.ts. Usa el callback
+  // setApplyWorldFromDataCallback wireado arriba.
+  const loadFromStorage = engineLoadFromStorage;
 
   // getSlots / setSlots ahora en src/persistence.ts.
   // saveSlot: wrapper que serializa el world acá (depende de `agents` que sigue en legacy)
@@ -500,12 +453,8 @@ import { formatRelTime } from './utils/format';
   }
   // deleteSlot ahora en src/persistence.ts.
 
-  // Debounce de save: marca cambio, guarda 400ms después.
-  let _saveTimer = null;
-  function markWorldChanged() {
-    if (_saveTimer) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(saveToStorage, 400);
-  }
+  // markWorldChanged ahora en src/engine/persistence.ts.
+  const markWorldChanged = engineMarkWorldChanged;
   setOnZonesChanged(markWorldChanged);   // engine/rooms dispara markWorldChanged al mutar zonas
 
   function resetWorldToDefault() {
