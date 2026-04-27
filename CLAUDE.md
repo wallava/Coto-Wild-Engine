@@ -64,6 +64,12 @@ Estas son innegociables. Las construí en muchas sesiones previas y me ahorran s
 - Comentarios en código: español también, salvo que sean términos técnicos universales.
 - Strings de UI: español colombiano. Sin formalidades como "usted".
 
+### 9. Localhost al cerrar fase
+- Cuando termines una fase (commit que cierra una fase entera, no rounds intermedios), arranca `npm run dev` en background y reportame **http://localhost:5173/** junto con el resumen de cierre.
+- Si vite ya estaba corriendo de antes, mátalo (`lsof -iTCP:5173 -sTCP:LISTEN | awk 'NR>1{print $2}' | xargs -r kill`) y rearrancalo. Eso fuerza un reload limpio con todo el código nuevo de la fase.
+- Esto aplica a Fases (1, 2, 3, 4...) y a sub-fases marcadas como cierre (3.5 cabling final, etc.). NO aplica a rounds intermedios dentro de una fase (3.1, 3.2, 3.3 — ahí espera mi instrucción).
+- Ejemplo de mensaje al cerrar fase: "🏁 Fase X cerrada. http://localhost:5173/ (PID NNNNN). Resumen: ..."
+
 ---
 
 ## Cómo evitar errores comunes
