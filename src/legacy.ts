@@ -53,7 +53,7 @@ import {
   showAgentThought,
   updateThoughtBubbles,
 } from './engine/thought-bubbles';
-import { startLandingAnim, updateLandingAnims } from './engine/landing-anim';
+import { updateLandingAnims } from './engine/landing-anim';
 import {
   buildCameraGizmo as engineBuildCameraGizmo,
   renderCameraGizmoPose,
@@ -233,6 +233,16 @@ import {
   setAgentFacing as setAgentFacingImpl,
   syncAgentMesh as syncAgentMeshImpl,
 } from './engine/agent-chassis';
+import {
+  initAgentDrag,
+  startAgentDrag,
+  updateAgentDragGhost,
+  updateAgentDragPhysics,
+  endAgentDrag,
+  isAgentDragging,
+  getDraggedAgent,
+  getDragGhost,
+} from './engine/agent-drag';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -1725,198 +1735,26 @@ import { formatRelTime } from './utils/format';
     return agents.find(a => a.mesh === hits[0].object) || null;
   }
 
-  // ── Click+drag de agentes (estilo Tomodachi Life / Two Point Hospital) ──
-  // El agente desaparece del piso cuando lo agarrás (se siente físico, como
-  // si la mano del jugador lo hubiera levantado). Sigue al cursor con un
-  // sistema masa-resorte: cuando movés rápido se queda atrás y oscila, como
-  // un péndulo. La rotación del sprite acompaña la velocidad horizontal.
-  let isAgentDrag = false;
-  let draggedAgent = null;
-  let agentDragGhost = null;
-  let agentDragOriginalCx = 0;
-  let agentDragOriginalCy = 0;
-  let agentDragOriginalPx = 0;
-  let agentDragOriginalPy = 0;
-  let agentDragTargetCx = 0;
-  let agentDragTargetCy = 0;
-  let agentDragValid = false;
-  // Wire del chassis: el módulo lee draggedAgent/ghost/selected/highlight
-  // via getters para mantener sync de facing (ghost) y posición (highlight).
+  // ── Drag de agentes (estilo Tomodachi) ──
+  // Toda la lógica state + physics vive en src/engine/agent-drag.ts.
+  // Wire de hooks: el módulo necesita leer agents + saber qué hacer al
+  // landing (handleAgentLanded) y al iniciar drag (clear de selection).
+  initAgentDrag({
+    getAgents: () => agents,
+    onClearSelection: () => clearAgentSelection(),
+    onLanded: (agent) => handleAgentLanded(agent),
+  });
+  // Wire del chassis: necesita los getters de drag (ghost) + selección
+  // (highlight) para sincronizar facing + posición desde sus helpers.
   initAgentChassis({
-    getDraggedAgent: () => draggedAgent,
-    getAgentDragGhost: () => agentDragGhost,
+    getDraggedAgent: () => getDraggedAgent(),
+    getAgentDragGhost: () => getDragGhost(),
     getSelectedAgent: () => selectedAgent,
     getAgentHighlight: () => agentHighlight,
     pickRandomKit: () => AGENT_KITS[Math.floor(Math.random() * AGENT_KITS.length)],
   });
-  // Spring physics — coords de mundo (no snap)
-  let agentDragCursorX = 0;     // target del cursor (donde está el mouse)
-  let agentDragCursorZ = 0;
-  let agentDragGhostX = 0;      // posición real del ghost (lerps al cursor)
-  let agentDragGhostZ = 0;
-  let agentDragVelX = 0;
-  let agentDragVelZ = 0;
-  let agentDragRot = 0;         // rotación del sprite (lerp hacia targetRot)
-  let agentDragTime = 0;        // acumulador para wobble idle
-  // Constantes del resorte
-  const AGENT_DRAG_SPRING_K = 65;     // rigidez del resorte (mayor = más rígido)
-  const AGENT_DRAG_DAMP_K   = 14;     // damping (mayor = menos oscilación)
-  const AGENT_DRAG_LIFT_Y   = 24;     // altura extra al "levantar" el agente
-  const AGENT_DRAG_ROT_GAIN = 0.011;  // factor velocidad → rotación
-  const AGENT_DRAG_ROT_DAMP = 12;     // damping de la rotación
 
   // setAgentMeshOpacity ahora en src/engine/agent-helpers.ts.
-
-  function isCellValidForAgentDrop(cx, cy, ignoreAgent) {
-    if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return false;
-    if (isBlockedByProp(cx, cy)) return false;
-    for (const a of agents) {
-      if (a === ignoreAgent) continue;
-      if (a.cx === cx && a.cy === cy) return false;
-    }
-    return true;
-  }
-
-  function startAgentDrag(agent) {
-    draggedAgent = agent;
-    isAgentDrag = true;
-    agentDragOriginalCx = agent.cx;
-    agentDragOriginalCy = agent.cy;
-    agentDragOriginalPx = agent.px;
-    agentDragOriginalPy = agent.py;
-    agentDragTargetCx = agent.cx;
-    agentDragTargetCy = agent.cy;
-    // Cancelar path, congelar agente, hacerlo invisible (la mano del jugador
-    // lo agarró físicamente — desaparece de la celda)
-    agent.path = [];
-    agent.target = null;
-    agent.waiting = 0;
-    agent.hopping = false;
-    agent.mesh.visible = false;
-    // Crear el ghost (lo que el usuario ve siendo levantado)
-    const ghostMat = new THREE.SpriteMaterial({
-      map: agent.mesh.material.map,
-      depthTest: false,
-      transparent: true,
-      opacity: 1.0,
-      alphaTest: 0.1,
-      depthWrite: false,
-    });
-    agentDragGhost = new THREE.Sprite(ghostMat);
-    agentDragGhost.scale.set(agent.spriteW, agent.spriteH, 1);
-    agentDragGhost.renderOrder = 999;
-    scene.add(agentDragGhost);
-    // Inicializar spring con la posición actual del agente (sin "salto")
-    agentDragGhostX = agent.px * CELL;
-    agentDragGhostZ = agent.py * CELL;
-    agentDragCursorX = agentDragGhostX;
-    agentDragCursorZ = agentDragGhostZ;
-    agentDragVelX = 0;
-    agentDragVelZ = 0;
-    agentDragRot = 0;
-    agentDragTime = 0;
-    clearAgentSelection();
-  }
-
-  function updateAgentDragGhost(event) {
-    // Solo actualiza el target del cursor en world coords. El movimiento real
-    // del ghost lo hace updateAgentDragPhysics(dt) en el animation loop.
-    if (!isAgentDrag || !draggedAgent) return;
-    const wp = getWorldPointFromEvent(event);
-    if (wp) {
-      agentDragCursorX = wp.x;
-      agentDragCursorZ = wp.z;
-      // Calcular celda destino para validación (snap solo para validar, no
-      // para mover el ghost)
-      const cx = Math.floor(wp.x / CELL);
-      const cy = Math.floor(wp.z / CELL);
-      agentDragTargetCx = cx;
-      agentDragTargetCy = cy;
-      agentDragValid = isCellValidForAgentDrop(cx, cy, draggedAgent);
-    }
-  }
-
-  // Llamado cada frame desde animate(). Aplica el sistema masa-resorte para
-  // que el ghost siga al cursor con inercia y oscilación natural.
-  function updateAgentDragPhysics(dt) {
-    if (!isAgentDrag || !agentDragGhost) return;
-    agentDragTime += dt;
-    // Spring force: empuja al ghost hacia el cursor
-    const fx = (agentDragCursorX - agentDragGhostX) * AGENT_DRAG_SPRING_K;
-    const fz = (agentDragCursorZ - agentDragGhostZ) * AGENT_DRAG_SPRING_K;
-    // Damping: frena la velocidad
-    const dampX = -agentDragVelX * AGENT_DRAG_DAMP_K;
-    const dampZ = -agentDragVelZ * AGENT_DRAG_DAMP_K;
-    agentDragVelX += (fx + dampX) * dt;
-    agentDragVelZ += (fz + dampZ) * dt;
-    agentDragGhostX += agentDragVelX * dt;
-    agentDragGhostZ += agentDragVelZ * dt;
-    // Actualizar facing del agente según velocidad horizontal (con threshold
-    // para no flipear con micro-vibraciones del resorte cuando está quieto).
-    // Igual que en updateAgents: velX > 0 visualmente va a la izquierda en
-    // pantalla con la cámara iso default.
-    if (Math.abs(agentDragVelX) > 8) {
-      setAgentFacing(draggedAgent, agentDragVelX > 0 ? 'left' : 'right');
-    }
-    // Rotación del sprite: tiende hacia velocidad horizontal proyectada en
-    // pantalla. Simplificación: usar velX (x del mundo) como proxy. Una
-    // versión 100% correcta tendría en cuenta la orientación de la cámara.
-    const targetRot = -agentDragVelX * AGENT_DRAG_ROT_GAIN;
-    // Wobble idle: leve oscilación cuando está "quieto"
-    const idle = Math.sin(agentDragTime * 5) * 0.04;
-    const targetRotWithIdle = targetRot + idle;
-    agentDragRot += (targetRotWithIdle - agentDragRot) * Math.min(1, AGENT_DRAG_ROT_DAMP * dt);
-    // Aplicar al ghost
-    const lift = AGENT_DRAG_LIFT_Y;
-    const baseY = draggedAgent.spriteH / 2 + lift;
-    agentDragGhost.position.set(
-      agentDragGhostX - centerX,
-      baseY,
-      agentDragGhostZ - centerZ
-    );
-    agentDragGhost.material.rotation = agentDragRot;
-    // Tint sutil rojo si la celda destino es inválida
-    if (agentDragValid) agentDragGhost.material.color.setRGB(1, 1, 1);
-    else                agentDragGhost.material.color.setRGB(1, 0.55, 0.55);
-  }
-
-  function endAgentDrag(commit) {
-    if (!isAgentDrag || !draggedAgent) return;
-    const agent = draggedAgent;
-    let landed = false;
-    if (commit && agentDragValid) {
-      // Aterrizaje: actualizar cx/cy/px/py al destino
-      agent.cx = agentDragTargetCx;
-      agent.cy = agentDragTargetCy;
-      agent.px = agentDragTargetCx + 0.5;
-      agent.py = agentDragTargetCy + 0.5;
-      eventBus.emit('agentMoved', { agent, cx: agent.cx, cy: agent.cy });
-      landed = true;
-    } else {
-      // Cancelar: volver a posición original
-      agent.cx = agentDragOriginalCx;
-      agent.cy = agentDragOriginalCy;
-      agent.px = agentDragOriginalPx;
-      agent.py = agentDragOriginalPy;
-    }
-    // Restaurar visibilidad del agente y reset rotación del sprite
-    agent.mesh.visible = true;
-    agent.mesh.material.rotation = 0;
-    syncAgentMesh(agent);
-    if (agentDragGhost) {
-      scene.remove(agentDragGhost);
-      agentDragGhost.material.dispose();
-      agentDragGhost = null;
-    }
-    isAgentDrag = false;
-    draggedAgent = null;
-    agentDragValid = false;
-    // Tras aterrizar: animación de squash + lógica de zona/estación
-    if (landed) {
-      startLandingAnim(agent);
-      handleAgentLanded(agent);
-    }
-  }
 
   // handleAgentLanded + startWorkingState ahora en src/game/stations.ts.
   // pickNearestProp + findWalkableAdjacentToProp ahora en src/engine/agent-helpers.ts.
@@ -1929,7 +1767,7 @@ import { formatRelTime } from './utils/format';
   // arrastrado (skip) y la callback de cutscene-control desde window.
   function updateAgents(dt) {
     updateAgentsImpl(agents, dt, {
-      skipAgent: draggedAgent,
+      skipAgent: getDraggedAgent(),
       isCutsceneControlled: typeof window._isCutsceneControlled === 'function'
         ? window._isCutsceneControlled
         : undefined,
@@ -3229,7 +3067,7 @@ import { formatRelTime } from './utils/format';
         phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, phi));
       }
       updateCamera();
-    } else if (leftDown && isAgentDrag) {
+    } else if (leftDown && isAgentDragging()) {
       updateAgentDragGhost(e);
     } else if (leftDown && isPropDrag) {
       const cat = draggedProp ? (draggedProp.category || 'floor') : 'floor';
@@ -3308,7 +3146,7 @@ import { formatRelTime } from './utils/format';
     }
     if (e.button === 0 && leftDown) {
       leftDown = false;
-      if (isAgentDrag) {
+      if (isAgentDragging()) {
         updateAgentDragGhost(e);
         endAgentDrag(true);
         return;
@@ -3428,7 +3266,7 @@ import { formatRelTime } from './utils/format';
         return;
       }
       // Después: agent drag (Two Point Hospital style — Esc cancela el agarre)
-      if (isAgentDrag) {
+      if (isAgentDragging()) {
         endAgentDrag(false);
         return;
       }
@@ -6385,7 +6223,7 @@ import { formatRelTime } from './utils/format';
       if (track.keyframes.length === 0) continue;
       const agent = agents.find(a => a.id === track.agentId);
       if (!agent) continue;
-      if (agent === draggedAgent) continue;
+      if (agent === getDraggedAgent()) continue;
 
       // Filtrar kfs al plano actual.
       const kfsInScene = ceFilterKfsToScene(track.keyframes, currentScene);
@@ -8045,7 +7883,7 @@ import { formatRelTime } from './utils/format';
 
   // updateAgentNeeds ahora en src/game/needs.ts. Wrapper para inyectar
   // el agente arrastrado (queda excluido del tick).
-  function updateAgentNeeds(dt) { updateAgentNeedsImpl(agents, dt, draggedAgent); }
+  function updateAgentNeeds(dt) { updateAgentNeedsImpl(agents, dt, getDraggedAgent()); }
 
   // updateAgentStatusOverlays ahora en src/engine/agent-status.ts (updateAgentStatusPositions).
   function updateAgentStatusOverlays() { updateAgentStatusPositions(agents); }
