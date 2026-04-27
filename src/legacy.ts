@@ -185,6 +185,13 @@ import {
 } from './editor/lifecycle';
 import { insertCutAt as cutsInsertCutAt } from './cutscene/cuts';
 import {
+  showPovControls as playbackShowPovControls,
+  hidePovControls as playbackHidePovControls,
+  updatePovOverlayTime as playbackUpdatePovOverlayTime,
+  updatePovFrame as playbackUpdatePovFrame,
+  scrubFromEvent as playbackScrubFromEvent,
+} from './editor/playback';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -4970,22 +4977,9 @@ import { formatRelTime } from './utils/format';
   }
   document.getElementById('ce-preview-btn').addEventListener('click', cePreviewMode);
 
-  // ── POV controls overlay (estilo YouTube: aparece con mousemove, se oculta tras 2.5s) ──
-  let _povControlsTimeout = null;
-  function showPovControls() {
-    const el = document.getElementById('pov-controls');
-    if (!el) return;
-    el.classList.add('visible');
-    clearTimeout(_povControlsTimeout);
-    _povControlsTimeout = setTimeout(() => {
-      el.classList.remove('visible');
-    }, 2500);
-  }
-  function hidePovControls() {
-    const el = document.getElementById('pov-controls');
-    if (el) el.classList.remove('visible');
-    clearTimeout(_povControlsTimeout);
-  }
+  // ── POV controls overlay — wrappers a editor/playback.ts ──
+  const showPovControls = playbackShowPovControls;
+  const hidePovControls = playbackHidePovControls;
   // Mostrar overlay con cualquier movimiento del mouse mientras POV activo
   window.addEventListener('mousemove', () => {
     if (document.body.classList.contains('pov-mode')) showPovControls();
@@ -5002,18 +4996,13 @@ import { formatRelTime } from './utils/format';
   document.getElementById('pov-exit').addEventListener('click', () => {
     cePovToggle.click();   // re-usa el toggle para salir limpio
   });
-  // Sync periódico del time display y play button del overlay
   function updatePovOverlayTime() {
-    if (!document.body.classList.contains('pov-mode')) return;
-    const el = document.getElementById('pov-time');
-    if (el) el.textContent = `${ceFormatTime(ceState.playhead)} / ${ceFormatTime(ceState.cutscene.duration)}`;
-    const playBtn = document.getElementById('pov-play');
-    if (playBtn) playBtn.textContent = ceState.playing ? '⏸' : '▶';
-    const fill = document.getElementById('pov-progress-fill');
-    if (fill) {
-      const pct = Math.max(0, Math.min(100, (ceState.playhead / ceState.cutscene.duration) * 100));
-      fill.style.width = `${pct}%`;
-    }
+    playbackUpdatePovOverlayTime(
+      ceState.playhead,
+      ceState.cutscene.duration,
+      !!ceState.playing,
+      ceFormatTime,
+    );
   }
   // Click en la progress bar → seek
   const _povProgress = document.getElementById('pov-progress');
@@ -5027,24 +5016,8 @@ import { formatRelTime } from './utils/format';
   }
   // Hook en el animate loop — vamos a llamarlo desde ceUpdate
 
-  // ── POV frame (barras negras según aspect ratio) ──
-  const POV_ASPECTS = { full: 0, '16:9': 16/9, cinema: 2.39 };
   function updatePovFrame() {
-    const frame = document.getElementById('pov-frame');
-    if (!frame) return;
-    const cam = ceState.cutscene && ceState.cutscene.camera;
-    const aspectKey = (ceState.povAspect || 'full');
-    const aspect = POV_ASPECTS[aspectKey] || 0;
-    if (!cam || !cam.povActive || aspect === 0) {
-      frame.classList.remove('active');
-      return;
-    }
-    frame.classList.add('active');
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
-    const targetH = vw / aspect;
-    const barH = Math.max(0, (vh - targetH) / 2);
-    frame.style.setProperty('--pov-bar-h', `${barH}px`);
+    playbackUpdatePovFrame(ceState.cutscene && ceState.cutscene.camera, ceState.povAspect);
   }
   ceAspectSelect.addEventListener('change', () => {
     ceState.povAspect = ceAspectSelect.value;
@@ -5056,14 +5029,8 @@ import { formatRelTime } from './utils/format';
     ceRenderTracks();
   });
 
-  // Scrub: mousedown en ruler o track-area → setear playhead, drag para mover
   function ceScrubFromEvent(e) {
-    const labelW = 110;
-    const rect = ceTimeline.getBoundingClientRect();
-    const x = e.clientX - rect.left - labelW;
-    const w = ceRulerWidth();
-    const t = cePixelToTime(x, w);
-    ceSetPlayhead(t);
+    playbackScrubFromEvent(ceTimeline, e.clientX, ceRulerWidth(), cePixelToTime, ceSetPlayhead);
   }
   // ── Interacciones con keyframes (select / drag / dblclick) ──
   let ceKfDragInfo = null;     // { trackIdx, kfIdx, isCamera, startX, startT, moved }

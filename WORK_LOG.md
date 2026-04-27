@@ -66,6 +66,30 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 11:50 - [INTERACTIVA] D3 POV controls + scrubbing → editor/playback.ts
+
+**Plan inicial**: extraer cePreviewMode + showPovControls + hidePovControls + updatePovOverlayTime + updatePovFrame + ceScrubFromEvent + POV_ASPECTS al módulo nuevo `src/editor/playback.ts`.
+
+**Review loop con Codex**: 1 round.
+- Codex bloqueantes (2): hidePovControls null-assign post-clearTimeout; strings con comillas (issue solo del transcript).
+- Codex recomendación clave: NO extraer `enterPreviewMode` orchestrator (sobre-inyección 4 params + 7 callbacks). Quedó en legacy.
+- Acepté ambas: scope reducido a 5 helpers DOM + 1 utility.
+- Total rounds: 1.
+
+**Tasks**:
+
+### CLAUDE-D3: extraer 5 helpers + scrubFromEvent
+- Archivos: `src/editor/playback.ts` (nuevo, 100 LOC), `src/legacy.ts` (~50 LOC reemplazadas por 5 wrappers thin).
+- Funciones extraídas: `POV_ASPECTS`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `scrubFromEvent`.
+- Diferido (per Codex): `cePreviewMode` + listeners de eventos quedan en legacy.
+- Mejora aplicada: `_povControlsTimeout = null` después de `clearTimeout` (legacy no lo hacía pero es más limpio).
+- Bug paridad preservado: `duration === 0` → NaN% en `updatePovOverlayTime` (legacy:5012-5014 también lo tiene).
+- `formatTime` pasado como callback (mantiene playback.ts sin import a editor/timeline.ts).
+- Validación: tsc ✅, smoke-test ✅, validación visual Pablo ✅.
+- Status: ✅ Done.
+
+---
+
 ## 2026-04-27 11:35 - [INTERACTIVA] D2 ceUpdateToolbarFields value-setting → editor/toolbar.ts
 
 **Plan inicial**: extraer bloque de value-setting (~30 LOC, legacy:3001-3031) respetando `document.activeElement` + presets. Wire-in con wrapper thin.
