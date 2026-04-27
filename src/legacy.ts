@@ -26,6 +26,9 @@ import {
   defaultWorld,
   makeDefaultStyleGrid,
   makeNullColorGrid,
+  findPropAt,
+  getFloorStackBase,
+  getStacksOnFloor,
 } from './engine/world';
 import {
   SLOT_CURRENT_KEY,
@@ -66,6 +69,9 @@ import {
   blocksWallN,
   blocksWallW,
   isCorner,
+  isAllWindowCorner,
+  getCandidateWallSlots,
+  getAdjacentCell,
 } from './engine/wall-queries';
 import { mkBox, makeGlassMesh, setStrokesGetter } from './engine/three-primitives';
 import { DOOR_TEMPLATES, doorTpl, makeDoorPanelMesh } from './engine/door-panels';
@@ -164,10 +170,13 @@ import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
 import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
 import { buildFloor } from './engine/floor-render';
 import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
+import { getMinCellsForZones, setMinCellsForZones } from './engine/zone-config';
 import {
   setFloorTileColor,
   setWallFaceColor,
   setPaintColorGetter,
+  floodFillFloor as engineFloodFillFloor,
+  floodFillRoomWalls as engineFloodFillRoomWalls,
 } from './engine/paint';
 import { formatRelTime } from './utils/format';
 // engine/door-anim revertido — door animation in legacy hasta resolver bug
@@ -205,20 +214,8 @@ import { formatRelTime } from './utils/format';
   // adentro. Habitaciones más chicas que esto no admiten zonas — no tiene
   // sentido sub-dividir un closet o un baño. Editable también en vivo desde
   // el panel 🏠 Habitaciones; se persiste en localStorage.
-  const DEFAULT_MIN_CELLS_FOR_ZONES = 4;
-  let minCellsForZones = DEFAULT_MIN_CELLS_FOR_ZONES;
-  try {
-    const stored = localStorage.getItem('cwe_min_cells_for_zones');
-    if (stored) {
-      const n = parseInt(stored, 10);
-      if (!isNaN(n) && n >= 1 && n <= 100) minCellsForZones = n;
-    }
-  } catch {}
-  function setMinCellsForZones(n) {
-    n = Math.max(1, Math.min(100, parseInt(n, 10) || 1));
-    minCellsForZones = n;
-    try { localStorage.setItem('cwe_min_cells_for_zones', String(n)); } catch {}
-  }
+  // DEFAULT_MIN_CELLS_FOR_ZONES + minCellsForZones state + setMinCellsForZones
+  // ahora en src/engine/zone-config.ts.
 
   // ── Paleta visual (warm cream, similar al SVG original) ──
   const PALETTE = {
@@ -670,55 +667,14 @@ import { formatRelTime } from './utils/format';
   // hasWallN/W, getDoorOnWallN/W, blocksSpillN/W, blocksPathN/W, blocksWallN/W,
   // isCorner ahora en src/engine/wall-queries.ts (importadas al top del módulo).
 
-  // Verdadero si TODAS las paredes que llegan a este corner son ventanas.
-  // Se usa para renderizar el post como vidrio (o no renderizarlo) en esos
-  // casos, evitando una "viga" sólida en medio de un ventanal continuo.
-  function isAllWindowCorner(cx, cy) {
-    let hasAny = false, allWindow = true;
-    if (cx > 0 && hasWallN(cx-1, cy)) {
-      hasAny = true;
-      if (worldGrid.wallNStyle && worldGrid.wallNStyle[cy][cx-1] !== 'window') allWindow = false;
-    }
-    if (cx < GRID_W && hasWallN(cx, cy)) {
-      hasAny = true;
-      if (worldGrid.wallNStyle && worldGrid.wallNStyle[cy][cx] !== 'window') allWindow = false;
-    }
-    if (cy > 0 && hasWallW(cx, cy-1)) {
-      hasAny = true;
-      if (worldGrid.wallWStyle && worldGrid.wallWStyle[cy-1][cx] !== 'window') allWindow = false;
-    }
-    if (cy < GRID_H && hasWallW(cx, cy)) {
-      hasAny = true;
-      if (worldGrid.wallWStyle && worldGrid.wallWStyle[cy][cx] !== 'window') allWindow = false;
-    }
-    return hasAny && allWindow;
-  }
+  // isAllWindowCorner ahora en src/engine/wall-queries.ts.
 
 
   // Ahora que los templates están definidos, migrar/limpiar los props cargados
   // (rellenar `stackable` en mesas pre-v0.94 y descartar stacks huérfanos).
   migrateLoadedProps();
 
-  // Devuelve todos los slots posibles para colgar wall props.
-  // Por cada pared existente, hay HASTA 2 slots (una por cara).
-  function getCandidateWallSlots() {
-    const c = [];
-    for (let cy = 0; cy <= GRID_H; cy++) {
-      for (let cx = 0; cx < GRID_W; cx++) {
-        if (!worldGrid.wallN[cy][cx]) continue;
-        if (cy > 0)      c.push({ side: 'N', cx, cy });   // mira al norte, cuarto al norte
-        if (cy < GRID_H) c.push({ side: 'S', cx, cy });   // mira al sur, cuarto al sur
-      }
-    }
-    for (let cy = 0; cy < GRID_H; cy++) {
-      for (let cx = 0; cx <= GRID_W; cx++) {
-        if (!worldGrid.wallW[cy][cx]) continue;
-        if (cx > 0)      c.push({ side: 'W', cx, cy });   // mira al oeste
-        if (cx < GRID_W) c.push({ side: 'E', cx, cy });   // mira al este
-      }
-    }
-    return c;
-  }
+  // getCandidateWallSlots ahora en src/engine/wall-queries.ts.
 
   function isAgentAt(cx, cy) {
     return agents.some(a => a.cx === cx && a.cy === cy);
@@ -813,12 +769,7 @@ import { formatRelTime } from './utils/format';
   let dragLastSide = null;
   let dragLastCx = 0, dragLastCy = 0;            // celda actual del cursor (ghost)
 
-  function findPropAt(cx, cy) {
-    for (const p of props) {
-      if (cx >= p.cx && cx < p.cx + p.w && cy >= p.cy && cy < p.cy + p.d) return p;
-    }
-    return null;
-  }
+  // findPropAt ahora en src/engine/world.ts.
 
   function clearHighlight() {
     if (!highlightMesh) return;
@@ -909,22 +860,7 @@ import { formatRelTime } from './utils/format';
     scene.add(highlightMesh);
   }
 
-  // Si la celda (cx, cy) está cubierta por un floor prop stackable, devuelve
-  // ese prop. Sirve para saber a qué altura posar un objeto stack y para
-  // validar que la celda admite stacks.
-  function getFloorStackBase(cx, cy) {
-    for (const other of props) {
-      const cat = other.category || 'floor';
-      if (cat !== 'floor') continue;
-      if (!other.stackable) continue;
-      const w = other.w || 1, d = other.d || 1;
-      if (cx >= other.cx && cx < other.cx + w &&
-          cy >= other.cy && cy < other.cy + d) {
-        return other;
-      }
-    }
-    return null;
-  }
+  // getFloorStackBase ahora en src/engine/world.ts.
 
   function canPlaceProp(prop, newCx, newCy) {
     const cat = prop.category || 'floor';
@@ -1050,23 +986,7 @@ import { formatRelTime } from './utils/format';
     return true;
   }
 
-  // Devuelve los stack props que están encima del floor stackable dado.
-  // Cada uno con su offset relativo al floor (dx, dy) para poder moverlos
-  // junto con la mesa manteniendo su posición relativa.
-  function getStacksOnFloor(floorProp) {
-    const out = [];
-    if (!floorProp || (floorProp.category || 'floor') !== 'floor') return out;
-    if (!floorProp.stackable) return out;
-    const w = floorProp.w || 1, d = floorProp.d || 1;
-    for (const p of props) {
-      if ((p.category || 'floor') !== 'stack') continue;
-      if (p.cx >= floorProp.cx && p.cx < floorProp.cx + w &&
-          p.cy >= floorProp.cy && p.cy < floorProp.cy + d) {
-        out.push({ prop: p, dx: p.cx - floorProp.cx, dy: p.cy - floorProp.cy });
-      }
-    }
-    return out;
-  }
+  // getStacksOnFloor ahora en src/engine/world.ts.
 
   function moveProp(prop, newCx, newCy) {
     if (!canPlaceProp(prop, newCx, newCy)) return false;
@@ -1252,37 +1172,20 @@ import { formatRelTime } from './utils/format';
 
   // getZoneAt + getZones + createZone + deleteZone + setZoneCell ahora en src/engine/rooms.ts.
 
-  // Para piso: pinta todas las tiles alcanzables desde la inicial sin atravesar
-  // paredes (= el conjunto de celdas de la habitación encerrada).
+  // floodFillFloor + floodFillRoomWalls ahora en src/engine/paint.ts.
+  // Wrappers locales agregan render + markWorldChanged.
   function floodFillFloor(startCx, startCy) {
-    for (const c of computeFloodFillFloor(startCx, startCy)) {
-      setFloorTileColor(c.cx, c.cy);
-    }
+    engineFloodFillFloor(startCx, startCy);
     buildScene();
     markWorldChanged();
   }
-
-  // Para paredes: hace flood fill de la habitación (set de celdas alcanzables
-  // desde la celda contigua a la cara clickeada), después pinta las caras de
-  // todas las paredes que la rodean (las que dan hacia las celdas visitadas).
-  // Eso da el efecto Sims: pintar una pared interior en una habitación cerrada
-  // pinta toda esa habitación; si está abierta, el flood se "escapa".
   function floodFillRoomWalls(startCx, startCy) {
-    for (const f of computeFloodFillRoomFaces(startCx, startCy)) {
-      setWallFaceColor(f.type, f.cx, f.cy, f.side);
-    }
+    engineFloodFillRoomWalls(startCx, startCy);
     buildScene();
     markWorldChanged();
   }
 
-  // Helper: dado un wallFace target y side, devuelve la celda adyacente del
-  // lado donde está pintándose (la "habitación" que se floodea).
-  function getAdjacentCell(type, cx, cy, side) {
-    if (side === 'S')      return { cx,         cy };
-    if (side === 'N')      return { cx,         cy: cy - 1 };
-    if (side === 'E')      return { cx,         cy };
-    /* 'W' */              return { cx: cx - 1, cy };
-  }
+  // getAdjacentCell ahora en src/engine/wall-queries.ts.
 
   // ── Sistema de preview de pintura (overlays translúcidos) ──
   // Cuando el usuario hover sobre piso o pared en modo Pintar (sin click),
@@ -1493,7 +1396,7 @@ import { formatRelTime } from './utils/format';
   // grande para admitir zonas. Habitaciones chicas (< minCellsForZones) no.
   function canPaintZoneCell(cx, cy) {
     const component = computeFloodFillFloor(cx, cy);
-    return component.length >= minCellsForZones;
+    return component.length >= getMinCellsForZones();
   }
   function floodFillAtEvent(event) {
     setRaycasterFromEvent(event);
@@ -4931,7 +4834,7 @@ import { formatRelTime } from './utils/format';
     getZoneEditingId: () => zoneEditingId,
     onStartZoneEdit: (id) => startZoneEdit(id),
     onStopZoneEdit: () => stopZoneEdit(),
-    getMinCellsForZones: () => minCellsForZones,
+    getMinCellsForZones: () => getMinCellsForZones(),
     onSetMinCellsForZones: (n) => setMinCellsForZones(n),
   });
 

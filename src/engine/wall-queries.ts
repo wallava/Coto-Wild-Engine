@@ -91,3 +91,79 @@ export function isCorner(cx: number, cy: number): boolean {
   if (cy < GRID_H && hasWallW(cx, cy)) hasW = true;
   return hasN && hasW;
 }
+
+// Verdadero si TODAS las paredes que llegan a este corner son ventanas.
+// Se usa para renderizar el post como vidrio (o no renderizarlo) en esos
+// casos, evitando una "viga" sólida en medio de un ventanal continuo.
+export function isAllWindowCorner(cx: number, cy: number): boolean {
+  let hasAny = false;
+  let allWindow = true;
+  const wallNStyle = worldGrid.wallNStyle as string[][] | undefined;
+  const wallWStyle = worldGrid.wallWStyle as string[][] | undefined;
+  if (cx > 0 && hasWallN(cx - 1, cy)) {
+    hasAny = true;
+    if (wallNStyle && wallNStyle[cy]?.[cx - 1] !== 'window') allWindow = false;
+  }
+  if (cx < GRID_W && hasWallN(cx, cy)) {
+    hasAny = true;
+    if (wallNStyle && wallNStyle[cy]?.[cx] !== 'window') allWindow = false;
+  }
+  if (cy > 0 && hasWallW(cx, cy - 1)) {
+    hasAny = true;
+    if (wallWStyle && wallWStyle[cy - 1]?.[cx] !== 'window') allWindow = false;
+  }
+  if (cy < GRID_H && hasWallW(cx, cy)) {
+    hasAny = true;
+    if (wallWStyle && wallWStyle[cy]?.[cx] !== 'window') allWindow = false;
+  }
+  return hasAny && allWindow;
+}
+
+// Dado un wallFace y side (cara), devuelve la celda adyacente del lado
+// donde está la habitación que esa cara mira hacia. Usado por flood-fill
+// de pintura: pintar la cara S de wallN[cy][cx] floodea el cuarto al sur
+// (que es la celda (cx, cy)).
+export function getAdjacentCell(
+  _type: 'wallN' | 'wallW',
+  cx: number,
+  cy: number,
+  side: 'N' | 'S' | 'E' | 'W',
+): { cx: number; cy: number } {
+  if (side === 'S') return { cx, cy };
+  if (side === 'N') return { cx, cy: cy - 1 };
+  if (side === 'E') return { cx, cy };
+  // 'W'
+  return { cx: cx - 1, cy };
+}
+
+// ── Wall prop slots ────────────────────────────────────────────────
+// Devuelve todos los slots posibles para colgar wall props (cuadros).
+// Por cada pared existente, hay HASTA 2 slots (una por cara).
+//   side='N' = mira al norte (cuarto al norte)
+//   side='S' = mira al sur (cuarto al sur)
+//   side='W' = mira al oeste
+//   side='E' = mira al este
+export type WallSlot = {
+  side: 'N' | 'S' | 'E' | 'W';
+  cx: number;
+  cy: number;
+};
+
+export function getCandidateWallSlots(): WallSlot[] {
+  const c: WallSlot[] = [];
+  for (let cy = 0; cy <= GRID_H; cy++) {
+    for (let cx = 0; cx < GRID_W; cx++) {
+      if (!worldGrid.wallN[cy]?.[cx]) continue;
+      if (cy > 0) c.push({ side: 'N', cx, cy });
+      if (cy < GRID_H) c.push({ side: 'S', cx, cy });
+    }
+  }
+  for (let cy = 0; cy < GRID_H; cy++) {
+    for (let cx = 0; cx <= GRID_W; cx++) {
+      if (!worldGrid.wallW[cy]?.[cx]) continue;
+      if (cx > 0) c.push({ side: 'W', cx, cy });
+      if (cx < GRID_W) c.push({ side: 'E', cx, cy });
+    }
+  }
+  return c;
+}

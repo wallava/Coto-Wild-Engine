@@ -62,6 +62,61 @@ export function removePropRef(prop: PropAny): PropAny | null {
   return removePropAt(idx);
 }
 
+// Devuelve el primer prop que ocupa la celda (cx, cy). Considera w/d para
+// muebles multi-celda. null si la celda está libre de props.
+export function findPropAt(cx: number, cy: number): PropAny | null {
+  for (const p of props) {
+    const px = p['cx'] as number;
+    const py = p['cy'] as number;
+    const w = (p['w'] as number) ?? 1;
+    const d = (p['d'] as number) ?? 1;
+    if (cx >= px && cx < px + w && cy >= py && cy < py + d) return p;
+  }
+  return null;
+}
+
+// Si la celda (cx, cy) está cubierta por un floor prop stackable, devuelve
+// ese prop. Sirve para saber a qué altura posar un objeto stack y para
+// validar que la celda admite stacks.
+export function getFloorStackBase(cx: number, cy: number): PropAny | null {
+  for (const other of props) {
+    const cat = (other['category'] as string) || 'floor';
+    if (cat !== 'floor') continue;
+    if (!other['stackable']) continue;
+    const ox = other['cx'] as number;
+    const oy = other['cy'] as number;
+    const w = (other['w'] as number) ?? 1;
+    const d = (other['d'] as number) ?? 1;
+    if (cx >= ox && cx < ox + w && cy >= oy && cy < oy + d) {
+      return other;
+    }
+  }
+  return null;
+}
+
+// Devuelve los stack props que están encima del floor stackable dado, cada
+// uno con su offset relativo (dx, dy) para mover juntos manteniendo posición.
+export type StackedProp = { prop: PropAny; dx: number; dy: number };
+
+export function getStacksOnFloor(floorProp: PropAny | null): StackedProp[] {
+  const out: StackedProp[] = [];
+  if (!floorProp || ((floorProp['category'] as string) || 'floor') !== 'floor') return out;
+  if (!floorProp['stackable']) return out;
+  const fx = floorProp['cx'] as number;
+  const fy = floorProp['cy'] as number;
+  const w = (floorProp['w'] as number) ?? 1;
+  const d = (floorProp['d'] as number) ?? 1;
+  for (const p of props) {
+    if (((p['category'] as string) || 'floor') !== 'stack') continue;
+    const px = p['cx'] as number;
+    const py = p['cy'] as number;
+    if (px >= fx && px < fx + w && py >= fy && py < fy + d) {
+      out.push({ prop: p, dx: px - fx, dy: py - fy });
+    }
+  }
+  return out;
+}
+
 // ── Helpers de creación de grids ──────────────────────────────────
 export function makeDefaultStyleGrid(rows: number, cols: number): WallStyle[][] {
   return [...Array(rows)].map(() => Array(cols).fill('solid' as WallStyle));

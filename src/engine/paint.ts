@@ -9,6 +9,7 @@
 import { GRID_W, GRID_H } from './state';
 import { worldGrid } from './world';
 import { eventBus } from './event-bus';
+import { computeFloodFillFloor, computeFloodFillRoomFaces } from './rooms';
 
 let _paintColorGetter: () => number | null = () => 0xc6bca2;
 
@@ -54,4 +55,27 @@ export function setWallFaceColor(
     entry[side] = color;
   }
   eventBus.emit('paintApplied', { kind: 'wall', type, cx, cy, side, color });
+}
+
+// ── Flood fill (Shift+click) ───────────────────────────────────────
+// Aplica setFloorTileColor / setWallFaceColor en batch (sin render
+// per-celda). El caller debe llamar buildScene() + markWorldChanged()
+// después.
+
+// Pinta todas las tiles alcanzables desde (startCx, startCy) sin atravesar
+// paredes (= el conjunto de celdas de la habitación encerrada).
+export function floodFillFloor(startCx: number, startCy: number): void {
+  for (const c of computeFloodFillFloor(startCx, startCy)) {
+    setFloorTileColor(c.cx, c.cy);
+  }
+}
+
+// Flood fill de la habitación (set de celdas alcanzables desde la celda
+// contigua a la cara clickeada), después pinta las caras de todas las
+// paredes que la rodean. Efecto Sims: pintar una pared interior en una
+// habitación cerrada pinta toda esa habitación; si está abierta, escapa.
+export function floodFillRoomWalls(startCx: number, startCy: number): void {
+  for (const f of computeFloodFillRoomFaces(startCx, startCy)) {
+    setWallFaceColor(f.type, f.cx, f.cy, f.side);
+  }
 }
