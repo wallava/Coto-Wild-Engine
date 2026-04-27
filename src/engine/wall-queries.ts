@@ -126,6 +126,134 @@ export function isAllWindowCorner(cx: number, cy: number): boolean {
   return hasAny && allWindow;
 }
 
+// Dado un punto en world coords (x, z) sin centrar, devuelve el edge de
+// wall más cercano (N/S/W/E del cell que contiene el punto). Usado para
+// wall placement: el cursor decide qué edge se construye.
+export type EdgeRef = {
+  type: 'wallN' | 'wallW';
+  cx: number;
+  cy: number;
+};
+
+export function getNearestEdgeFromPoint(p: { x: number; z: number } | null): EdgeRef | null {
+  if (!p) return null;
+  const cx = Math.floor(p.x / CELL);
+  const cy = Math.floor(p.z / CELL);
+  if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return null;
+  const localX = p.x - cx * CELL;
+  const localY = p.z - cy * CELL;
+  const dN = localY;
+  const dS = CELL - localY;
+  const dW = localX;
+  const dE = CELL - localX;
+  const minD = Math.min(dN, dS, dW, dE);
+  if (minD === dN) return { type: 'wallN', cx, cy };
+  if (minD === dS) return { type: 'wallN', cx, cy: cy + 1 };
+  if (minD === dW) return { type: 'wallW', cx, cy };
+  return { type: 'wallW', cx: cx + 1, cy };
+}
+
+// Encuentra la cara de pared más cercana al cursor donde se puede colgar
+// un cuadro. Itera ventana 3x3 alrededor del cursor. La cara debe tener
+// celda del lado correspondiente (sino el cuadro miraría al exterior).
+//
+// side='N' = cara norte de wallN, visible desde celda al norte (cy-1)
+// side='S' = cara sur de wallN, visible desde celda al sur (cy)
+// side='W' = cara oeste de wallW, visible desde celda al oeste (cx-1)
+// side='E' = cara este de wallW, visible desde celda al este (cx)
+export type PlaceableWallFace = {
+  side: 'N' | 'S' | 'E' | 'W';
+  cx: number;
+  cy: number;
+};
+
+export function findNearestPlaceableWallFace(
+  p: { x: number; z: number } | null,
+): PlaceableWallFace | null {
+  if (!p) return null;
+  const cx0 = Math.floor(p.x / CELL);
+  const cy0 = Math.floor(p.z / CELL);
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+  let best: PlaceableWallFace | null = null;
+  let bestDist = Infinity;
+
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const cx = cx0 + dx;
+      const cy = cy0 + dy;
+
+      // wallN: pared horizontal en Z = cy*CELL.
+      if (cy >= 0 && cy <= GRID_H && cx >= 0 && cx < GRID_W && hasWallN(cx, cy)) {
+        const fx = clamp(p.x, cx * CELL, (cx + 1) * CELL);
+        if (cy > 0) {
+          const fz = cy * CELL - halfT;
+          const d = Math.hypot(p.x - fx, p.z - fz);
+          if (d < bestDist) { bestDist = d; best = { side: 'N', cx, cy }; }
+        }
+        if (cy < GRID_H) {
+          const fz = cy * CELL + halfT;
+          const d = Math.hypot(p.x - fx, p.z - fz);
+          if (d < bestDist) { bestDist = d; best = { side: 'S', cx, cy }; }
+        }
+      }
+
+      // wallW: pared vertical en X = cx*CELL.
+      if (cy >= 0 && cy < GRID_H && cx >= 0 && cx <= GRID_W && hasWallW(cx, cy)) {
+        const fz = clamp(p.z, cy * CELL, (cy + 1) * CELL);
+        if (cx > 0) {
+          const fx = cx * CELL - halfT;
+          const d = Math.hypot(p.x - fx, p.z - fz);
+          if (d < bestDist) { bestDist = d; best = { side: 'W', cx, cy }; }
+        }
+        if (cx < GRID_W) {
+          const fx = cx * CELL + halfT;
+          const d = Math.hypot(p.x - fx, p.z - fz);
+          if (d < bestDist) { bestDist = d; best = { side: 'E', cx, cy }; }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+// Devuelve el SEGMENTO de pared más cercano al cursor (sin lado). Útil
+// para puertas: el cursor decide qué pared, el usuario decide el side.
+export type WallSegment = {
+  type: 'wallN' | 'wallW';
+  cx: number;
+  cy: number;
+};
+
+export function findNearestWallSegment(
+  p: { x: number; z: number } | null,
+): WallSegment | null {
+  if (!p) return null;
+  const cx0 = Math.floor(p.x / CELL);
+  const cy0 = Math.floor(p.z / CELL);
+  let best: WallSegment | null = null;
+  let bestDist = Infinity;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const cx = cx0 + dx;
+      const cy = cy0 + dy;
+      if (cy >= 0 && cy <= GRID_H && cx >= 0 && cx < GRID_W && hasWallN(cx, cy)) {
+        const segX = (cx + 0.5) * CELL;
+        const segZ = cy * CELL;
+        const d = Math.hypot(p.x - segX, p.z - segZ);
+        if (d < bestDist) { bestDist = d; best = { type: 'wallN', cx, cy }; }
+      }
+      if (cy >= 0 && cy < GRID_H && cx >= 0 && cx <= GRID_W && hasWallW(cx, cy)) {
+        const segX = cx * CELL;
+        const segZ = (cy + 0.5) * CELL;
+        const d = Math.hypot(p.x - segX, p.z - segZ);
+        if (d < bestDist) { bestDist = d; best = { type: 'wallW', cx, cy }; }
+      }
+    }
+  }
+  return best;
+}
+
 // Dado un wallFace y side (cara), devuelve la celda adyacente del lado
 // donde está la habitación que esa cara mira hacia. Usado por flood-fill
 // de pintura: pintar la cara S de wallN[cy][cx] floodea el cuarto al sur

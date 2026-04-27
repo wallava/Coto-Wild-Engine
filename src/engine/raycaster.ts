@@ -77,3 +77,15 @@ export function getFloorCellFromEvent(
   const ft = hits[0]!.object.userData['floorTile'] as { cx: number; cy: number };
   return { ...ft };
 }
+
+// Raycast contra TODOS los sceneObjects, devuelve el primer prop encontrado
+// (mesh.userData.prop) o null.
+export function getPropFromEvent(event: { clientX: number; clientY: number }): unknown {
+  setRaycasterFromEvent(event);
+  const intersects = _raycaster.intersectObjects(getSceneObjects(), false);
+  for (const hit of intersects) {
+    const prop = hit.object.userData?.['prop'];
+    if (prop) return prop;
+  }
+  return null;
+}

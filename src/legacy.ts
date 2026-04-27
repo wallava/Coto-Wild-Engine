@@ -73,6 +73,9 @@ import {
   getCandidateWallSlots,
   getAdjacentCell,
   getWallPropBounds,
+  getNearestEdgeFromPoint,
+  findNearestPlaceableWallFace,
+  findNearestWallSegment,
 } from './engine/wall-queries';
 import { mkBox, makeGlassMesh, setStrokesGetter } from './engine/three-primitives';
 import { DOOR_TEMPLATES, doorTpl, makeDoorPanelMesh } from './engine/door-panels';
@@ -93,6 +96,7 @@ import {
   getCellFromEvent,
   getFloorCellFromEvent,
   getWorldPointFromEvent,
+  getPropFromEvent,
   setCanvasGetter,
   setCameraGetter,
 } from './engine/raycaster';
@@ -144,6 +148,7 @@ import {
   ITEM_SIZES,
   getItemSize,
 } from './game/agent-kits';
+import { createAgentTexture } from './engine/agent-texture';
 import {
   ROOM_KINDS,
   ROOM_REQUIREMENTS,
@@ -1326,20 +1331,7 @@ import { formatRelTime } from './utils/format';
 
   // getWorldPointFromEvent ahora en src/engine/raycaster.ts.
 
-  function getNearestEdgeFromPoint(p) {
-    if (!p) return null;
-    const cx = Math.floor(p.x / CELL);
-    const cy = Math.floor(p.z / CELL);
-    if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return null;
-    const localX = p.x - cx * CELL;
-    const localY = p.z - cy * CELL;
-    const dN = localY, dS = CELL - localY, dW = localX, dE = CELL - localX;
-    const minD = Math.min(dN, dS, dW, dE);
-    if (minD === dN) return { type: 'wallN', cx, cy };
-    if (minD === dS) return { type: 'wallN', cx, cy: cy + 1 };
-    if (minD === dW) return { type: 'wallW', cx, cy };
-    return { type: 'wallW', cx: cx + 1, cy };
-  }
+  // getNearestEdgeFromPoint ahora en src/engine/wall-queries.ts.
 
   // ── Cara de pared más cercana donde se puede colocar un cuadro ──
   // Itera sobre las caras de paredes existentes en celdas vecinas, mide la
@@ -1353,94 +1345,8 @@ import { formatRelTime } from './utils/format';
   //   side='S' = cara sur de wallN[cy][cx], visible desde celda al sur (cy).
   //   side='W' = cara oeste de wallW[cy][cx], visible desde celda al oeste (cx-1).
   //   side='E' = cara este de wallW[cy][cx], visible desde celda al este (cx).
-  function findNearestPlaceableWallFace(p) {
-    if (!p) return null;
-    const cx0 = Math.floor(p.x / CELL);
-    const cy0 = Math.floor(p.z / CELL);
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-    let best = null;
-    let bestDist = Infinity;
-
-    // Buscar en una ventana de 3x3 celdas alrededor del cursor para captar
-    // caras justo en los bordes (un cursor en celda (cx,cy) puede estar más
-    // cerca de una cara de la celda (cx+1, cy) por ejemplo).
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const cx = cx0 + dx;
-        const cy = cy0 + dy;
-
-        // wallN[cy][cx]: pared horizontal en Z = cy*CELL.
-        // Cara norte en Z = cy*CELL - halfT. Cara sur en Z = cy*CELL + halfT.
-        if (cy >= 0 && cy <= GRID_H && cx >= 0 && cx < GRID_W && hasWallN(cx, cy)) {
-          const cx0Wall = cx * CELL, cx1Wall = (cx + 1) * CELL;
-          const fx = clamp(p.x, cx0Wall, cx1Wall);
-          // Cara norte (placeable si hay celda al norte: cy>0)
-          if (cy > 0) {
-            const fz = cy * CELL - halfT;
-            const d = Math.hypot(p.x - fx, p.z - fz);
-            if (d < bestDist) { bestDist = d; best = { side: 'N', cx, cy }; }
-          }
-          // Cara sur (placeable si hay celda al sur: cy<GRID_H)
-          if (cy < GRID_H) {
-            const fz = cy * CELL + halfT;
-            const d = Math.hypot(p.x - fx, p.z - fz);
-            if (d < bestDist) { bestDist = d; best = { side: 'S', cx, cy }; }
-          }
-        }
-
-        // wallW[cy][cx]: pared vertical en X = cx*CELL.
-        // Cara oeste en X = cx*CELL - halfT. Cara este en X = cx*CELL + halfT.
-        if (cy >= 0 && cy < GRID_H && cx >= 0 && cx <= GRID_W && hasWallW(cx, cy)) {
-          const cy0Wall = cy * CELL, cy1Wall = (cy + 1) * CELL;
-          const fz = clamp(p.z, cy0Wall, cy1Wall);
-          // Cara oeste (placeable si hay celda al oeste: cx>0)
-          if (cx > 0) {
-            const fx = cx * CELL - halfT;
-            const d = Math.hypot(p.x - fx, p.z - fz);
-            if (d < bestDist) { bestDist = d; best = { side: 'W', cx, cy }; }
-          }
-          // Cara este (placeable si hay celda al este: cx<GRID_W)
-          if (cx < GRID_W) {
-            const fx = cx * CELL + halfT;
-            const d = Math.hypot(p.x - fx, p.z - fz);
-            if (d < bestDist) { bestDist = d; best = { side: 'E', cx, cy }; }
-          }
-        }
-      }
-    }
-
-    return best;
-  }
-
-  // Devuelve el SEGMENTO de pared más cercano al cursor (sin lado).
-  // Útil para puertas: el cursor decide qué pared, el usuario decide el side.
-  function findNearestWallSegment(p) {
-    if (!p) return null;
-    const cx0 = Math.floor(p.x / CELL);
-    const cy0 = Math.floor(p.z / CELL);
-    let best = null;
-    let bestDist = Infinity;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const cx = cx0 + dx;
-        const cy = cy0 + dy;
-        if (cy >= 0 && cy <= GRID_H && cx >= 0 && cx < GRID_W && hasWallN(cx, cy)) {
-          const segX = (cx + 0.5) * CELL;
-          const segZ = cy * CELL;
-          const d = Math.hypot(p.x - segX, p.z - segZ);
-          if (d < bestDist) { bestDist = d; best = { type: 'wallN', cx, cy }; }
-        }
-        if (cy >= 0 && cy < GRID_H && cx >= 0 && cx <= GRID_W && hasWallW(cx, cy)) {
-          const segX = cx * CELL;
-          const segZ = (cy + 0.5) * CELL;
-          const d = Math.hypot(p.x - segX, p.z - segZ);
-          if (d < bestDist) { bestDist = d; best = { type: 'wallW', cx, cy }; }
-        }
-      }
-    }
-    return best;
-  }
+  // findNearestPlaceableWallFace + findNearestWallSegment ahora en
+  // src/engine/wall-queries.ts.
 
   // Calcula el path actual de paredes según start, end y axis fijado.
   // Si wallDragAxis === null y el delta total es muy chico, devuelve solo
@@ -2323,14 +2229,7 @@ import { formatRelTime } from './utils/format';
   // Alias local para callsites que leen _raycaster directamente.
   const _raycaster = getRaycaster();
 
-  function getPropFromEvent(event) {
-    setRaycasterFromEvent(event);
-    const intersects = _raycaster.intersectObjects(sceneObjects, false);
-    for (const hit of intersects) {
-      if (hit.object.userData && hit.object.userData.prop) return hit.object.userData.prop;
-    }
-    return null;
-  }
+  // getPropFromEvent ahora en src/engine/raycaster.ts.
 
   function trySpawnAgent() {
     let attempts = 0;
@@ -2355,44 +2254,7 @@ import { formatRelTime } from './utils/format';
   // AGENT_KITS + BRAIN_FONT_SIZE + ITEM_DEFAULT_SIZE + ITEM_SIZES + getItemSize
   // ahora viven en src/game/agent-kits.ts.
 
-  function createAgentTexture(left, right, brainFlipped) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 256, 256);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    // Cerebro: tamaño fijo grande, opcionalmente flipped horizontal cuando
-    // el agente camina hacia la izquierda.
-    ctx.font = `${BRAIN_FONT_SIZE}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    if (brainFlipped) {
-      ctx.save();
-      ctx.translate(76, 0);
-      ctx.scale(-1, 1);
-      ctx.fillText(left, 0, 130);
-      ctx.restore();
-    } else {
-      ctx.fillText(left, 76, 130);
-    }
-    // Item: tamaño según ITEM_SIZES (proporcional al objeto real). NUNCA flipped.
-    // La base del item se alinea con la base del cerebro (sensación de que lo
-    // sostiene a su altura, no que flota arriba). Posicionado más cerca del
-    // cerebro para que se sienta sostenido, pero sin solapar.
-    const itemSize = getItemSize(right);
-    ctx.font = `${itemSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    const itemBaseY = 130 + BRAIN_FONT_SIZE / 2;
-    const itemCenterY = itemBaseY - itemSize / 2;
-    // X del item: borde derecho del cerebro + half del item + pequeño margen.
-    // Con cerebro en x=76 (font 110, glyph ocupa ~70%), borde derecho ≈ 76+39=115.
-    // Item con borde izquierdo ≈ itemX - itemSize*0.35.
-    const itemX = 76 + (BRAIN_FONT_SIZE * 0.36) + (itemSize * 0.35) + 4;
-    ctx.fillText(right, itemX, itemCenterY);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    return texture;
-  }
+  // createAgentTexture ahora en src/engine/agent-texture.ts.
 
   // VOICE_PRESETS / hashStringToInt / pickVoiceIdx ahora viven en src/voices.ts.
 
