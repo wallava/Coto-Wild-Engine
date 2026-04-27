@@ -186,6 +186,10 @@ import {
   updateAgentNeeds as updateAgentNeedsImpl,
 } from './game/needs';
 import {
+  startWorkingState,
+  handleAgentLanded,
+} from './game/stations';
+import {
   buildRoomsOverlay,
   clearRoomsOverlay,
   isRoomsOverlayActive,
@@ -2055,62 +2059,7 @@ import { formatRelTime } from './utils/format';
     }
   }
 
-  // Lógica post-aterrizaje: detectar zona, chequear requisitos, decidir si
-  // el agente camina a una estación o muestra confusion.
-  function handleAgentLanded(agent) {
-    const zoneInfo = getZoneAt(agent.cx, agent.cy);
-    if (!zoneInfo) {
-      showAgentThought(agent, 'confused', 2.5);
-      return;
-    }
-    const check = checkZoneRequirements(zoneInfo.zone);
-    if (!check.ok) {
-      showAgentThought(agent, 'confused', 2.5);
-      console.log('[zone]', zoneInfo.type, zoneInfo.zone.name || `(${zoneInfo.zone.kind || 'sin kind'})`,
-                  '— requisitos no cumplidos:', check.missing);
-      return;
-    }
-    // Zona funcional — caminar al primer prop requerido
-    const reqs = ROOM_REQUIREMENTS[zoneInfo.zone.kind] || [];
-    if (reqs.length === 0) {
-      // Zona sin requisitos (ej: bathroom) — empezar working en sitio
-      startWorkingState(agent, null, zoneInfo.zone.kind);
-      return;
-    }
-    const firstKind = reqs[0].kind;
-    const propsOfKind = check.satisfiedBy[firstKind] || [];
-    if (propsOfKind.length === 0) return;   // safety
-    const nearest = pickNearestProp(propsOfKind, agent.cx, agent.cy);
-    if (!nearest) return;
-    const target = findWalkableAdjacentToProp(nearest, agent.cx, agent.cy);
-    if (!target) return;
-    // Si ya estamos en la celda target, disparar working directo (no hay path)
-    if (target.cx === agent.cx && target.cy === agent.cy) {
-      startWorkingState(agent, nearest, zoneInfo.zone.kind);
-      return;
-    }
-    if (assignAgentTarget(agent, target.cx, target.cy)) {
-      agent._stationProp = nearest;
-      agent._stationZoneKind = zoneInfo.zone.kind;
-    } else {
-      // Pathfind falló — disparar working igual (estamos en la zona y zona OK)
-      startWorkingState(agent, nearest, zoneInfo.zone.kind);
-    }
-  }
-
-  // Helper único que inicia el estado working del agente. Usado tanto por
-  // handleAgentLanded (cuando ya está en posición) como por el handler de
-  // agentMoved (cuando llegó caminando).
-  function startWorkingState(agent, prop, zoneKind) {
-    agent.working = {
-      prop, zoneKind,
-      duration: WORKING_DURATION,
-      elapsed: 0,
-    };
-    eventBus.emit('agentReachedStation', { agent, prop, zoneKind });
-    console.log('[station] agente working', prop ? `en ${prop.name}` : '(sin prop)', `— zona: ${zoneKind}`);
-  }
-
+  // handleAgentLanded + startWorkingState ahora en src/game/stations.ts.
   // pickNearestProp + findWalkableAdjacentToProp ahora en src/engine/agent-helpers.ts.
 
   // assignAgentTarget ahora en src/engine/agent-helpers.ts.
