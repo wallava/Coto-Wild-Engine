@@ -66,6 +66,46 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 20:50 - [FASE 5 INTERACTIVA] R1 capa LLM base (5 archivos paralelos + 42 tests)
+
+**Plan inicial**: 5 jobs Codex paralelos + tests post-impl.
+
+**Review loop con Codex**: 1 round.
+- 3 bloqueantes aceptados:
+  1. DEFAULT_CAP_USD = 0.50 literal (caveman shell expansion en mi prompt original).
+  2. AbortController unificado: abort cancela fetch + backoff sleep.
+  3. SSE error event NO ignore silently → throw LLMError({code:'STREAM_ERROR'}).
+- Sugerencias: LLMClientOptions con fetchImpl/sleepImpl/retryConfig inyectable, queue release idempotente, sanitize sin heurística injection, tests con vi.useFakeTimers, resetGlobalQueueForTests.
+
+**Tasks**:
+
+### CODEX-1: anthropic-client.ts (delegated, session a342be4fd179c88fc)
+- 441 LOC. AnthropicClient con LLMClientOptions inyectables. fetch + dangerous-direct-browser-access. SSE parser estricto. Error normalization (KEY_INVALID/RATE_LIMIT/HTTP_ERROR/STREAM_ERROR/TIMEOUT/ABORTED). Retry exp 1/2/4s.
+
+### CODEX-2: mock-client.ts (delegated, session adb016b4237836e09)
+- 136 LOC. MockLLMClient con queue() FIFO + on(pattern) match. Throw sin match. Streaming simulado word-by-word con sleepImpl.
+
+### CODEX-3: cost.ts + cost-tracker.ts (delegated, session a5e280a74e178761d)
+- cost.ts (53 LOC): estimateCostUSD worst case + actualCostUSD con desglose 5m/1h.
+- cost-tracker.ts (64 LOC): SessionCostTrackerImpl, DEFAULT_CAP_USD=0.50, EPSILON.
+
+### CODEX-4: sanitize.ts (delegated, session abd582b134e9feda1)
+- 44 LOC. Solo escapes estructurales. Backticks/comillas/newlines + escape literal `<world_context>` para prevenir spoofing.
+
+### CODEX-5: queue.ts (delegated, session a0bdfdc3365b71bb4)
+- 74 LOC. Singleton getGlobalQueue() + resetGlobalQueueForTests(). release idempotente. FIFO. QUEUE_TIMEOUT.
+
+### CODEX-7A: tests (delegated, session aa72b0bb9bff6ff96)
+- 42 tests en 5 archivos. tests/llm/{anthropic-client, mock-client, cost, sanitize, queue}.test.ts.
+
+### CLAUDE-R1: 1 fix
+- CODEX-2 sobreescribió cost.ts y borró estimateCostUSD. Linter lo restauró tras Read.
+
+**Validación**: tsc ✅, smoke ✅, npm test **218/218** ✅ (176 + 42).
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 20:30 - [FASE 5 INTERACTIVA] R0.5 smoke spike API real (PASA)
 
 **Plan inicial**: scripts/llm-smoke.mjs standalone con 3 tests (streaming, 401, prompt caching).

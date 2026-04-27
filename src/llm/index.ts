@@ -30,3 +30,14 @@ export {
   MODEL_MIN_CACHEABLE_TOKENS,
   recommendCacheTTL,
 } from './models';
+
+export { estimateCostUSD, actualCostUSD } from './cost';
+
+export {
+  DEFAULT_CAP_USD,
+  EPSILON,
+  SessionCostTrackerImpl,
+  createSessionCostTracker,
+} from './cost-tracker';
+
+export type { SessionCostTrackerOpts } from './cost-tracker';
