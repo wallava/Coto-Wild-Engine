@@ -127,6 +127,12 @@ import {
   computeWallStateAt as cutsceneComputeWallStateAt,
 } from './cutscene/walls';
 import {
+  applyPoseToCinematicCamera as runtimeApplyPoseToCinematicCamera,
+  createCinematicCameraCache,
+  isCameraLocked as runtimeIsCameraLocked,
+  isCutsceneControlled as runtimeIsCutsceneControlled,
+} from './cutscene/runtime';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -4922,35 +4928,9 @@ import { formatRelTime } from './utils/format';
   }
 
   // ── Engine de playback (llamado en animate loop) ──
-  // Aplicar pose+lens+roll a cinematicCamera solo si algo cambió.
-  // Esto evita updateProjectionMatrix() en loop infinito que causaba flicker visual.
-  const _camCache = { posX: NaN, posY: NaN, posZ: NaN, tgtX: NaN, tgtY: NaN, tgtZ: NaN, roll: NaN, lens: NaN, aspect: NaN };
+  const _camCache = createCinematicCameraCache();
   function applyPoseToCinematicCamera(pos, tgt, roll, lens) {
-    const aspect = viewW / viewH;
-    const same = (
-      pos.x === _camCache.posX && pos.y === _camCache.posY && pos.z === _camCache.posZ &&
-      tgt.x === _camCache.tgtX && tgt.y === _camCache.tgtY && tgt.z === _camCache.tgtZ &&
-      roll === _camCache.roll && lens === _camCache.lens && aspect === _camCache.aspect
-    );
-    if (same) return;   // nada cambió → no tocar la cámara
-    _camCache.posX = pos.x; _camCache.posY = pos.y; _camCache.posZ = pos.z;
-    _camCache.tgtX = tgt.x; _camCache.tgtY = tgt.y; _camCache.tgtZ = tgt.z;
-    _camCache.roll = roll; _camCache.lens = lens; _camCache.aspect = aspect;
-    const fx = tgt.x - pos.x, fy = tgt.y - pos.y, fz = tgt.z - pos.z;
-    const flen = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
-    const fxn = fx / flen, fyn = fy / flen, fzn = fz / flen;
-    const cR = Math.cos(roll), sR = Math.sin(roll);
-    const dot = fyn;
-    const upX = (fzn) * sR + fxn * dot * (1 - cR);
-    const upY = cR + fyn * dot * (1 - cR);
-    const upZ = (-fxn) * sR + fzn * dot * (1 - cR);
-    cinematicCamera.up.set(upX, upY, upZ);
-    cinematicCamera.position.set(pos.x, pos.y, pos.z);
-    cinematicCamera.lookAt(tgt.x, tgt.y, tgt.z);
-    const fovDeg = 2 * Math.atan(36 / (2 * lens)) * 180 / Math.PI;
-    cinematicCamera.fov = fovDeg;
-    cinematicCamera.aspect = aspect;
-    cinematicCamera.updateProjectionMatrix();
+    runtimeApplyPoseToCinematicCamera(cinematicCamera, viewW, viewH, _camCache, pos, tgt, roll, lens);
   }
 
   function ceUpdate(dt) {
@@ -5288,17 +5268,12 @@ import { formatRelTime } from './utils/format';
     }
   }
 
-  // ── Helper: cámara real bloqueada (POV cinemática activo) ──
   function isCameraLocked() {
-    return ceState.open && ceState.cutscene.camera.povActive;
+    return runtimeIsCameraLocked(!!ceState.open, !!ceState.cutscene.camera.povActive);
   }
 
-  // Helper para que updateAgents skip agentes mientras el editor está abierto.
-  // Mientras está abierto, NINGÚN agente toma decisiones autónomas. Si el
-  // usuario los dragea, ese drag tiene prioridad. Si hay playback, ceUpdate
-  // los maneja. Si no, quedan donde estén.
-  function isCutsceneControlled(agent) {
-    return ceState.open;
+  function isCutsceneControlled(_agent) {
+    return runtimeIsCutsceneControlled(!!ceState.open);
   }
   // Exponer para que updateAgents lo use
   window._isCutsceneControlled = isCutsceneControlled;

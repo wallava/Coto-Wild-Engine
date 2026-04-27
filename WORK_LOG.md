@@ -91,6 +91,14 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 - Diferida: `ceUpdateToolbarFields` (~80 LOC con DOM-coupling cruzado vía `selectedKf` + `activeElement` + presets — esperar Wave I lifecycle para extraer junto a refs DOM).
 - Validación: `npx tsc --noEmit` ✅
 
+**TASK Wave D**: extraer runtime helpers a `src/cutscene/runtime.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done (parcial — body de `ceUpdate` deferido)
+- Archivos: `src/cutscene/runtime.ts` (nuevo), `src/legacy.ts` (3 wrappers)
+- Funciones extraídas: `applyPoseToCinematicCamera` (parametrizado con camera+viewW+viewH+cache), `isCameraLocked`, `isCutsceneControlled`. `createCinematicCameraCache` reemplaza el literal `_camCache`.
+- Diferido: split del body de `ceUpdate` por subsistema. Razón: Codex review previa marcó este split como NO-low-risk — preservar orden per-frame exacto requiere más cuidado del que cabe en nocturno autónomo. Decidido extraer solo helpers periféricos.
+- Validación: `npx tsc --noEmit` ✅
+
 ---
 
 ## 2026-04-27 08:15 - HANDOFF nocturno: bypass mode no estaba activo, requiere restart Claude
