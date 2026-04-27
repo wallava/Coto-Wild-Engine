@@ -66,6 +66,40 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 16:10 - [FASE 4 INTERACTIVA] R3 actions + compiler + tests (round crítico)
+
+**Plan inicial**: actions.ts puras (Codex) + compiler.ts simulación temporal (Claude). Tests integration.
+
+**Review loop con Codex**: 1 round (adversarial obligatorio R3).
+- 4 bloqueantes aceptados:
+  1. `camina_a` 1 kf en t + init kfs t=0 → runtime interpola natural.
+  2. Acciones simultáneas mismo t: snapshot pre-mutación, apply post-grupo.
+  3. Compiler ordena actions por t ASC (parser no garantiza).
+  4. Init move kf t=0 por cada agent (agentes que solo speak/anima caerían a (0,0)).
+- Cambios técnicos: AgentKf typed (no any), CELL importado de engine/state.ts, compileWalkAction devuelve resolvedTarget.
+
+**Tasks**:
+
+### CODEX-5: src/cutscene/actions.ts (delegated, session a26306d2970584710)
+- 47 LOC. 5 funciones puras compileX. compileEsperaAction no-op.
+- compileMiraAction → type='animation' preset='mira' + targetId metadata.
+
+### CLAUDE-1: src/cutscene/compiler.ts
+- 315 LOC. Pipeline: validate AST → resolveInitialAgents → emit init move kfs t=0 → process scenes (shot+move+actions agrupadas) → finalTransition → validate runtime Cutscene.
+- snapshot pre-grupo de world para acciones simultáneas.
+- inheritState: i>0, escenaRootId: self id (R3 simple).
+
+### CODEX-7C: tests actions (delegated, session a97737ef22b6e538b)
+- 10 tests cubriendo cada verb + edge cases.
+
+### CODEX-7D: tests compiler integration (delegated, session a8aa6e772c5fed84b)
+- 8 tests: AST mínimo, init kfs, multi-scene cuts, walk actualiza world, finalTransition, warn duración, AST inválido, actions reordenadas.
+
+**Validación**: tsc ✅, smoke ✅, npm test 171/171 ✅ (153 + 18).
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 15:55 - [FASE 4 INTERACTIVA] R2 shots + camera-moves + tests (paralelo)
 
 **Plan inicial**: Codex paralelo. shots.ts (5 shot types puros), camera-moves.ts (4 moves), tests con invariantes.
