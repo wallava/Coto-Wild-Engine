@@ -66,6 +66,31 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 20:00 - [FASE 5 INTERACTIVA] R0 contrato LLM types + smoke spike script
+
+**Plan inicial**: Round 0 escribe contrato esqueleto (sin impl) en src/llm/types.ts + models.ts. Round 0.5 spike de API real con script standalone.
+
+**Review loop con Codex**: 1 round.
+- 5 bloqueantes técnicos aceptados:
+  1. Strings con comillas (typo transcript).
+  2. **Mínimo cacheable Haiku 4.5 = 4096 tokens** (no 1024). Helper recommendCacheTTL separado.
+  3. Usage agrega cacheCreation5m/1hTokens? opcionales (API expone ephemeral_5m/1h_input_tokens).
+  4. StopReason extensible con `(string & {})` para valores futuros (tool_use etc).
+  5. LLMError con LLMErrorCode discriminado (9 codes: ABORTED, FIRST_TOKEN_TIMEOUT, TOTAL_TIMEOUT, QUEUE_TIMEOUT, HTTP_ERROR, RATE_LIMIT, STREAM_ERROR, KEY_INVALID, CAP_EXCEEDED).
+- Sugerencias: completeStream AsyncIterable (no AsyncIterableIterator), enforceCap → isOverCap, Personality.model? optional, cacheTTLHint en CompletionOpts.
+
+**Tasks Round 0**:
+
+### CLAUDE-R0: src/llm/types.ts + models.ts + index.ts
+- types.ts (160 LOC): contrato canónico ajustado post-review.
+- models.ts (60 LOC): MODEL_API_IDS + MODEL_PRICING + MODEL_MIN_CACHEABLE_TOKENS + recommendCacheTTL().
+- index.ts (32 LOC): barrel export.
+- tsc ✅. Sin tests (esqueleto). Sin runtime impacto.
+
+**Status R0**: ✅ Done. Avanza a R0.5 (smoke spike).
+
+---
+
 ## 2026-04-27 19:00 - [POST-FASE 4] Pendientes nice-to-have
 
 Validación visual end-to-end ejecutada por Pablo: cargó scenes/test-encuentro.json en el editor vía paste a localStorage. Pipeline funciona — el JSON carga, scenes/tracks/camera.keyframes parsean correctos. Calidad del output cinematográfico requiere tuning.
