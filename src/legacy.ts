@@ -97,6 +97,7 @@ import {
   refreshAgentSelect as toolbarRefreshAgentSelect,
   refreshParentSelect as toolbarRefreshParentSelect,
   applyToolbarVisibility as toolbarApplyVisibility,
+  applyToolbarValues as toolbarApplyValues,
 } from './editor/toolbar';
 import {
   ensureSceneConsistency as cutsceneEnsureSceneConsistency,
@@ -2999,37 +3000,14 @@ import { formatRelTime } from './utils/format';
       setCameraGizmoVisible,
     );
     if (activeType === 'camera') ceRefreshParentSelect();
-    if (selectedKf) {
-      if (selectedKf.type === 'speak' && document.activeElement !== ceTextInput) {
-        ceTextInput.value = selectedKf.text || '';
-      }
-      if (selectedKf.type === 'animation') {
-        if (document.activeElement !== ceAnimSelect) ceAnimSelect.value = selectedKf.preset || 'wave';
-        if (document.activeElement !== ceDurationInput) {
-          ceDurationInput.value = (selectedKf.duration ?? CE_ANIM_PRESETS[selectedKf.preset || 'wave'].duration).toFixed(1);
-        }
-      }
-      if (selectedKf.type === 'camera' && document.activeElement !== ceCutCheckbox) {
-        ceCutCheckbox.checked = !!selectedKf.cut;
-      }
-      if (selectedKf.type === 'camera' && document.activeElement !== ceTransSelect) {
-        ceTransSelect.value = selectedKf.transition || 'none';
-      }
-      if (selectedKf.type === 'camera' && document.activeElement !== ceTransDurInput) {
-        ceTransDurInput.value = (selectedKf.transitionDuration || 0.5).toFixed(1);
-      }
-      if (selectedKf.type === 'fx') {
-        if (document.activeElement !== ceFxSelect) ceFxSelect.value = selectedKf.fx || 'smoke';
-        if (document.activeElement !== ceDurationInput) {
-          ceDurationInput.value = (selectedKf.duration ?? FX_PRESETS[selectedKf.fx || 'smoke'].duration).toFixed(1);
-        }
-        if (document.activeElement !== cePinCheckbox) {
-          cePinCheckbox.checked = !!(selectedKf.target && selectedKf.target.kind === 'cell');
-        }
-      }
-    } else if (activeType === 'camera' && document.activeElement !== ceCutCheckbox) {
-      ceCutCheckbox.checked = false;
-    }
+    toolbarApplyValues(
+      { ceTextInput, ceAnimSelect, ceDurationInput, ceCutCheckbox,
+        ceTransSelect, ceTransDurInput, ceFxSelect, cePinCheckbox },
+      selectedKf,
+      activeType,
+      CE_ANIM_PRESETS,
+      FX_PRESETS,
+    );
   }
 
   function ceRefreshParentSelect() {

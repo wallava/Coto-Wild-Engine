@@ -66,6 +66,26 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 11:35 - [INTERACTIVA] D2 ceUpdateToolbarFields value-setting → editor/toolbar.ts
+
+**Plan inicial**: extraer bloque de value-setting (~30 LOC, legacy:3001-3031) respetando `document.activeElement` + presets. Wire-in con wrapper thin.
+
+**Reparto**: Pablo + Claude diseñan plan; Codex ejecuta wire-in mecánico (delegación `codex:codex-rescue` background).
+
+**Tasks**:
+
+### CODEX-D2: ejecución wire-in (delegated)
+- Codex session: `task-id ad6ff5ee3715cc9c3` (background)
+- Archivos modificados: `src/editor/toolbar.ts` (+62 LOC: ToolbarValueRefs + applyToolbarValues), `src/legacy.ts` (~30 LOC reemplazadas por llamada single).
+- Validación Codex: tsc ✅. smoke-test falló por sandbox network (EPERM puerto 5173) — no fallo de código.
+- Validación Claude desde entorno principal: tsc ✅, smoke-test ✅.
+- Validación visual Pablo: ✅ ("ANDA D2").
+- Status: ✅ Done.
+
+**Mientras Codex ejecutaba**: Claude leyó código completo de D3 (POV + preview + scrubbing) y armó plan. Codex review D3 en background.
+
+---
+
 ## 2026-04-27 11:15 - [INTERACTIVA] D1 ceStartGroupDrag → editor/multi-sel.ts
 
 **Plan inicial**: extraer ceStartGroupDrag (~85 LOC) a multi-sel.ts. Crear tipos `ActiveGroupDrag` + `GroupDragAnchor` + `GroupDragInitial`. Wire-in con wrapper thin que llama editorStartGroupDrag(state, cutscene, anchor, kind, startX, alt) + ceRenderTracks().

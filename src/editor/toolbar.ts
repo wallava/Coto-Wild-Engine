@@ -185,3 +185,66 @@ export function applyToolbarVisibility(
   const ceCamLensGroup = document.getElementById('ce-cam-lens-group');
   if (ceCamLensGroup) ceCamLensGroup.style.display = (activeType === 'camera') ? 'inline-flex' : 'none';
 }
+
+export type ToolbarValueRefs = {
+  ceTextInput: HTMLInputElement;
+  ceAnimSelect: HTMLSelectElement;
+  ceDurationInput: HTMLInputElement;
+  ceCutCheckbox: HTMLInputElement;
+  ceTransSelect: HTMLSelectElement;
+  ceTransDurInput: HTMLInputElement;
+  ceFxSelect: HTMLSelectElement;
+  cePinCheckbox: HTMLInputElement;
+};
+
+type PresetMap = Record<string, { duration: number }>;
+
+/**
+ * Aplica valores del kf seleccionado a los inputs del toolbar respetando
+ * document.activeElement (no pisa lo que el usuario está editando).
+ *
+ * Si selectedKf es null y activeType === 'camera', limpia el cut checkbox.
+ */
+export function applyToolbarValues(
+  refs: ToolbarValueRefs,
+  selectedKf: any | null,
+  activeType: string,
+  animPresets: PresetMap,
+  fxPresets: PresetMap,
+): void {
+  if (selectedKf) {
+    if (selectedKf.type === 'speak' && document.activeElement !== refs.ceTextInput) {
+      refs.ceTextInput.value = selectedKf.text || '';
+    }
+    if (selectedKf.type === 'animation') {
+      if (document.activeElement !== refs.ceAnimSelect) {
+        refs.ceAnimSelect.value = selectedKf.preset || 'wave';
+      }
+      if (document.activeElement !== refs.ceDurationInput) {
+        refs.ceDurationInput.value = (selectedKf.duration ?? animPresets[selectedKf.preset || 'wave']!.duration).toFixed(1);
+      }
+    }
+    if (selectedKf.type === 'camera' && document.activeElement !== refs.ceCutCheckbox) {
+      refs.ceCutCheckbox.checked = !!selectedKf.cut;
+    }
+    if (selectedKf.type === 'camera' && document.activeElement !== refs.ceTransSelect) {
+      refs.ceTransSelect.value = selectedKf.transition || 'none';
+    }
+    if (selectedKf.type === 'camera' && document.activeElement !== refs.ceTransDurInput) {
+      refs.ceTransDurInput.value = (selectedKf.transitionDuration || 0.5).toFixed(1);
+    }
+    if (selectedKf.type === 'fx') {
+      if (document.activeElement !== refs.ceFxSelect) {
+        refs.ceFxSelect.value = selectedKf.fx || 'smoke';
+      }
+      if (document.activeElement !== refs.ceDurationInput) {
+        refs.ceDurationInput.value = (selectedKf.duration ?? fxPresets[selectedKf.fx || 'smoke']!.duration).toFixed(1);
+      }
+      if (document.activeElement !== refs.cePinCheckbox) {
+        refs.cePinCheckbox.checked = !!(selectedKf.target && selectedKf.target.kind === 'cell');
+      }
+    }
+  } else if (activeType === 'camera' && document.activeElement !== refs.ceCutCheckbox) {
+    refs.ceCutCheckbox.checked = false;
+  }
+}
