@@ -292,3 +292,63 @@ export function getZoneAt(cx: number, cy: number): ZoneAtResult | null {
   }
   return null;
 }
+
+// ── Mutación de zonas abiertas ─────────────────────────────────────
+// markWorldChanged viene vía callback porque vive en legacy hasta que se
+// extraiga la persistencia full.
+
+let _onZonesChanged: () => void = () => {};
+
+export function setOnZonesChanged(cb: () => void): void {
+  _onZonesChanged = cb;
+}
+
+export function createZone(): Zone {
+  const zone: Zone = {
+    id: uid(),
+    name: '',
+    kind: null,
+    color: pickRoomColor(),
+    cells: [],
+  };
+  if (!Array.isArray(worldGrid.zones)) worldGrid.zones = [];
+  (worldGrid.zones as Zone[]).push(zone);
+  eventBus.emit('zonesChanged', { reason: 'create', zoneId: zone.id });
+  _onZonesChanged();
+  return zone;
+}
+
+export function deleteZone(zoneId: string): void {
+  if (!Array.isArray(worldGrid.zones)) return;
+  const zones = worldGrid.zones as Zone[];
+  const idx = zones.findIndex((z) => z.id === zoneId);
+  if (idx === -1) return;
+  zones.splice(idx, 1);
+  eventBus.emit('zonesChanged', { reason: 'delete', zoneId });
+  _onZonesChanged();
+}
+
+// Si presence=true y la celda está en otra zona, se transfiere (no hay
+// solapamiento entre zonas).
+export function setZoneCell(zoneId: string, cx: number, cy: number, presence: boolean): boolean {
+  const zones = (worldGrid.zones as Zone[] | undefined) ?? [];
+  const zone = zones.find((z) => z.id === zoneId);
+  if (!zone) return false;
+  const idx = zone.cells.findIndex((c) => c.cx === cx && c.cy === cy);
+  if (presence) {
+    if (idx !== -1) return false;
+    // Quitar de otras zonas
+    for (const other of zones) {
+      if (other.id === zoneId) continue;
+      const oIdx = other.cells.findIndex((c) => c.cx === cx && c.cy === cy);
+      if (oIdx !== -1) other.cells.splice(oIdx, 1);
+    }
+    zone.cells.push({ cx, cy });
+  } else {
+    if (idx === -1) return false;
+    zone.cells.splice(idx, 1);
+  }
+  eventBus.emit('zonesChanged', { reason: 'edit', zoneId });
+  _onZonesChanged();
+  return true;
+}

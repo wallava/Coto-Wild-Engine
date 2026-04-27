@@ -14,8 +14,7 @@ import {
   WIN_HALF_SILL_H,
   WIN_HALF_GLASS_H,
   DOOR_PANEL_THICK,
-  DOOR_OPEN_SPEED,
-  DOOR_DETECT_RADIUS,
+  // DOOR_OPEN_SPEED + DOOR_DETECT_RADIUS no se usan — door anim eliminada
 } from './engine/state';
 import { eventBus } from './engine/event-bus';
 import {
@@ -97,6 +96,10 @@ import {
   propsInCells,
   getZones,
   getZoneAt,
+  createZone,
+  deleteZone,
+  setZoneCell,
+  setOnZonesChanged,
 } from './engine/rooms';
 import { VOICE_PRESETS, hashStringToInt, pickVoiceIdx } from './engine/voices';
 import { escapeHtml } from './utils/escape-html';
@@ -136,6 +139,23 @@ import {
   setRoomsOverlayActive,
   setZoneEditingIdGetter,
 } from './engine/rooms-overlay';
+import { showConfirm, showPrompt, showToast, initModals } from './ui/modals';
+import {
+  buildCatalog,
+  openCatalog,
+  closeCatalog,
+  toggleCatalog,
+  setOnPlaceTemplate,
+} from './ui/catalog-panel';
+import {
+  initSlotsPanel,
+  renderSlotsList,
+  setOnLoadSlot,
+  setOnSaveSlot,
+} from './ui/slots-panel';
+import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
+import { formatRelTime } from './utils/format';
+// engine/door-anim revertido — door animation in legacy hasta resolver bug
 
 (window as any).THREE = THREE;
 (window as any).Tone = Tone;
@@ -605,6 +625,7 @@ import {
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(saveToStorage, 400);
   }
+  setOnZonesChanged(markWorldChanged);   // engine/rooms dispara markWorldChanged al mutar zonas
 
   function resetWorldToDefault() {
     localStorage.removeItem(SLOT_CURRENT_KEY);
@@ -1234,52 +1255,7 @@ import {
   // + getRooms + computeRoomHasDoor ahora viven en src/engine/rooms.ts.
 
 
-  // getZoneAt + getZones ahora viven en src/engine/rooms.ts.
-  function createZone() {
-    const zone = {
-      id: uid(),
-      name: '',
-      kind: null,
-      color: pickRoomColor(),
-      cells: [],
-    };
-    if (!Array.isArray(worldGrid.zones)) worldGrid.zones = [];
-    worldGrid.zones.push(zone);
-    eventBus.emit('zonesChanged', { reason: 'create', zoneId: zone.id });
-    markWorldChanged();
-    return zone;
-  }
-  function deleteZone(zoneId) {
-    if (!Array.isArray(worldGrid.zones)) return;
-    const idx = worldGrid.zones.findIndex(z => z.id === zoneId);
-    if (idx === -1) return;
-    worldGrid.zones.splice(idx, 1);
-    eventBus.emit('zonesChanged', { reason: 'delete', zoneId });
-    markWorldChanged();
-  }
-  // Setea o quita una celda en una zona. Si presence=true y la celda está en
-  // otra zona, se transfiere (no hay solapamiento entre zonas).
-  function setZoneCell(zoneId, cx, cy, presence) {
-    const zone = (worldGrid.zones || []).find(z => z.id === zoneId);
-    if (!zone) return false;
-    const idx = zone.cells.findIndex(c => c.cx === cx && c.cy === cy);
-    if (presence) {
-      if (idx !== -1) return false; // ya está
-      // Quitar de otras zonas
-      for (const other of (worldGrid.zones || [])) {
-        if (other.id === zoneId) continue;
-        const oIdx = other.cells.findIndex(c => c.cx === cx && c.cy === cy);
-        if (oIdx !== -1) other.cells.splice(oIdx, 1);
-      }
-      zone.cells.push({ cx, cy });
-    } else {
-      if (idx === -1) return false;
-      zone.cells.splice(idx, 1);
-    }
-    eventBus.emit('zonesChanged', { reason: 'edit', zoneId });
-    markWorldChanged();
-    return true;
-  }
+  // getZoneAt + getZones + createZone + deleteZone + setZoneCell ahora en src/engine/rooms.ts.
 
   // Para piso: pinta todas las tiles alcanzables desde la inicial sin atravesar
   // paredes (= el conjunto de celdas de la habitación encerrada).
@@ -2608,59 +2584,9 @@ import {
   // ══════════════════════════════════════════════════════════════
   //  CATÁLOGO — panel con cards de templates seleccionables
   // ══════════════════════════════════════════════════════════════
-  function buildCatalog() {
-    const grid = document.getElementById('catalog-grid');
-    grid.innerHTML = '';
-    const groups = [
-      { key: 'floor', title: 'Muebles',     items: PROP_TEMPLATES.filter(t => (t.category || 'floor') === 'floor') },
-      { key: 'rug',   title: 'Alfombras',   items: PROP_TEMPLATES.filter(t => t.category === 'rug') },
-      { key: 'stack', title: 'Encima',      items: PROP_TEMPLATES.filter(t => t.category === 'stack') },
-      { key: 'wall',  title: 'Cuadros',     items: WALL_PROP_TEMPLATES.map(t => ({ ...t, category: 'wall' })) },
-      { key: 'door',  title: '🚪 Puertas',  items: DOOR_PROP_TEMPLATES.map(t => ({ ...t, category: 'door' })) },
-    ];
-    for (const grp of groups) {
-      if (grp.items.length === 0) continue;
-      const title = document.createElement('div');
-      title.className = 'cat-section-title';
-      title.textContent = grp.title;
-      grid.appendChild(title);
-      for (const tmpl of grp.items) {
-        const card = document.createElement('div');
-        card.className = 'cat-card';
-        const swatch = document.createElement('div');
-        swatch.className = 'cat-swatch';
-        swatch.style.background = '#' + tmpl.top.toString(16).padStart(6, '0');
-        const swatchInner = document.createElement('div');
-        swatchInner.style.cssText = 'height:50%;background:#' + tmpl.right.toString(16).padStart(6, '0');
-        swatch.appendChild(swatchInner);
-        card.appendChild(swatch);
-        const label = document.createElement('div');
-        label.textContent = tmpl.name;
-        card.appendChild(label);
-        const meta = document.createElement('div');
-        meta.className = 'cat-meta';
-        if (tmpl.category === 'wall') meta.textContent = 'cuadro';
-        else meta.textContent = `${tmpl.w}×${tmpl.d}`;
-        card.appendChild(meta);
-        card.addEventListener('click', () => {
-          closeCatalog();
-          enterPlaceMode(tmpl);
-        });
-        grid.appendChild(card);
-      }
-    }
-  }
-
-  function openCatalog() {
-    document.getElementById('catalog').classList.add('open');
-  }
-  function closeCatalog() {
-    document.getElementById('catalog').classList.remove('open');
-  }
-  function toggleCatalog() {
-    const el = document.getElementById('catalog');
-    el.classList.toggle('open');
-  }
+  // buildCatalog + openCatalog + closeCatalog + toggleCatalog ahora en src/ui/catalog-panel.ts.
+  // Wireado a enterPlaceMode al final del IIFE (cuando enterPlaceMode esté declarado).
+  setOnPlaceTemplate((tmpl) => enterPlaceMode(tmpl));
 
   // Raycaster compartido
   const _raycaster = new THREE.Raycaster();
@@ -5112,202 +5038,15 @@ import {
   });
 
   // ── Custom confirm dialog ──
-  // Reemplaza confirm() nativo, que algunos sandboxes/iframes bloquean.
-  // Uso: showConfirm('mensaje', onYes, onNo?). onNo es opcional.
-  let _confirmCb = null;
-  function showConfirm(message, onYes, onNo) {
-    document.getElementById('confirm-msg').textContent = message;
-    document.getElementById('confirm-dialog').classList.add('open');
-    _confirmCb = { onYes, onNo };
-  }
-  function hideConfirm() {
-    document.getElementById('confirm-dialog').classList.remove('open');
-    _confirmCb = null;
-  }
-  document.getElementById('confirm-yes').addEventListener('click', () => {
-    const cb = _confirmCb;
-    hideConfirm();
-    if (cb && typeof cb.onYes === 'function') cb.onYes();
-  });
-  document.getElementById('confirm-no').addEventListener('click', () => {
-    const cb = _confirmCb;
-    hideConfirm();
-    if (cb && typeof cb.onNo === 'function') cb.onNo();
-  });
-  // Esc cierra el diálogo (cancelar)
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.getElementById('confirm-dialog').classList.contains('open')) {
-      const cb = _confirmCb;
-      hideConfirm();
-      if (cb && typeof cb.onNo === 'function') cb.onNo();
-    }
-  });
+  // showConfirm/showPrompt/showToast ahora en src/ui/modals.ts (init más abajo).
+  // formatRelTime ahora en src/utils/format.ts.
+  initModals();
 
-  // ── Toast (mensaje efímero, no bloqueante) ──
-  let _toastTimer = null;
-  function showToast(message, durationMs) {
-    let toast = document.getElementById('cs-toast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'cs-toast';
-      toast.style.cssText = 'position:fixed; bottom:80px; left:50%; transform:translateX(-50%); ' +
-        'background:rgba(40,30,20,0.95); color:#f5e8c8; padding:10px 18px; ' +
-        'border-radius:100px; font-size:13px; z-index:10002; box-shadow:0 8px 24px rgba(0,0,0,0.5); ' +
-        'backdrop-filter:blur(8px); pointer-events:none; opacity:0; transition:opacity 0.2s; ' +
-        'max-width:80vw; text-align:center;';
-      document.body.appendChild(toast);
-    }
-    toast.textContent = message;
-    requestAnimationFrame(() => { toast.style.opacity = '1'; });
-    if (_toastTimer) clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, durationMs || 3500);
-  }
-
-  // ── Prompt dialog (reemplazo de prompt() que está bloqueado en sandbox) ──
-  let _promptCb = null;
-  function showPrompt(message, defaultValue, onAccept, onCancel) {
-    document.getElementById('prompt-msg').textContent = message;
-    const input = document.getElementById('prompt-input');
-    input.value = defaultValue || '';
-    document.getElementById('prompt-dialog').classList.add('open');
-    _promptCb = { onAccept, onCancel };
-    setTimeout(() => { input.focus(); input.select(); }, 50);
-  }
-  function hidePrompt() {
-    document.getElementById('prompt-dialog').classList.remove('open');
-    _promptCb = null;
-  }
-  document.getElementById('prompt-yes').addEventListener('click', () => {
-    const cb = _promptCb;
-    const val = document.getElementById('prompt-input').value;
-    hidePrompt();
-    if (cb && typeof cb.onAccept === 'function') cb.onAccept(val);
-  });
-  document.getElementById('prompt-no').addEventListener('click', () => {
-    const cb = _promptCb;
-    hidePrompt();
-    if (cb && typeof cb.onCancel === 'function') cb.onCancel();
-  });
-  document.getElementById('prompt-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('prompt-yes').click();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      document.getElementById('prompt-no').click();
-    }
-    e.stopPropagation();   // que no caiga al window listener
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.getElementById('prompt-dialog').classList.contains('open')) {
-      const cb = _promptCb;
-      hidePrompt();
-      if (cb && typeof cb.onCancel === 'function') cb.onCancel();
-    }
-  });
-
-  // ── Slots panel ──
-  function formatRelTime(ts) {
-    const dt = (Date.now() - ts) / 1000;
-    if (dt < 60) return 'hace un momento';
-    if (dt < 3600) return `hace ${Math.floor(dt / 60)} min`;
-    if (dt < 86400) return `hace ${Math.floor(dt / 3600)} h`;
-    const days = Math.floor(dt / 86400);
-    if (days < 30) return `hace ${days} día${days === 1 ? '' : 's'}`;
-    return new Date(ts).toLocaleDateString();
-  }
-  // escapeHtml ahora vive en src/utils/escape-html.ts.
-  function renderSlotsList() {
-    const list = document.getElementById('slots-list');
-    const slots = getSlots().sort((a, b) => b.savedAt - a.savedAt);
-    if (slots.length === 0) {
-      list.innerHTML = '<div class="slots-empty">No hay mundos guardados.</div>';
-      return;
-    }
-    list.innerHTML = '';
-    for (const s of slots) {
-      const card = document.createElement('div');
-      card.className = 'slot-card';
-      card.innerHTML = `
-        <div class="slot-card-row">
-          <span class="slot-name">${escapeHtml(s.name)}</span>
-        </div>
-        <div class="slot-card-row">
-          <span class="slot-date">${escapeHtml(formatRelTime(s.savedAt))} · ${s.world.props.length} muebles</span>
-          <span style="flex:1"></span>
-          <button class="slot-load" data-id="${s.id}">Cargar</button>
-          <button class="slot-delete" data-id="${s.id}" title="Borrar slot">🗑️</button>
-        </div>
-      `;
-      list.appendChild(card);
-    }
-  }
-
-  // Event delegation: un solo handler en el padre captura clicks en cualquier
-  // botón dinámico de slot. Más robusto que addEventListener per-button
-  // (sobrevive a re-renders y no se pierde por timing).
-  document.getElementById('slots-list').addEventListener('click', (e) => {
-    const loadBtn = e.target.closest('.slot-load');
-    if (loadBtn) {
-      const id = loadBtn.dataset.id;
-      const slot = getSlots().find(s => s.id === id);
-      if (!slot) return;
-      showConfirm(
-        `Cargar "${slot.name}"? Tu mundo actual se reemplaza (se autoguarda como current).`,
-        () => {
-          if (loadSlot(id)) console.log('[slots] loaded:', slot.name);
-        }
-      );
-      return;
-    }
-    const delBtn = e.target.closest('.slot-delete');
-    if (delBtn) {
-      const id = delBtn.dataset.id;
-      const slot = getSlots().find(s => s.id === id);
-      if (!slot) return;
-      showConfirm(`Borrar slot "${slot.name}"?`, () => {
-        deleteSlot(id);
-        renderSlotsList();
-      });
-      return;
-    }
-  });
-
-  document.getElementById('btn-slots').addEventListener('click', () => {
-    const panel = document.getElementById('slots-panel');
-    const willOpen = !panel.classList.contains('open');
-    panel.classList.toggle('open', willOpen);
-    if (willOpen) renderSlotsList();
-  });
-  document.getElementById('slot-save-btn').addEventListener('click', () => {
-    const input = document.getElementById('slot-name-input');
-    const name = input.value.trim();
-    if (!name) return;
-    const existing = getSlots().find(s => s.name === name);
-    const doSave = () => {
-      saveSlot(name);
-      input.value = '';
-      renderSlotsList();
-    };
-    if (existing) {
-      showConfirm(`Ya existe "${name}". ¿Sobreescribir?`, doSave);
-    } else {
-      doSave();
-    }
-  });
-  document.getElementById('slot-name-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('slot-save-btn').click();
-    }
-  });
-  // Refrescar lista cuando se guarda/borra un slot por código
-  eventBus.on('slotSaved', () => {
-    if (document.getElementById('slots-panel').classList.contains('open')) renderSlotsList();
-  });
-  eventBus.on('slotDeleted', () => {
-    if (document.getElementById('slots-panel').classList.contains('open')) renderSlotsList();
-  });
+  // Slots panel ahora vive en src/ui/slots-panel.ts.
+  // Wire de loadSlot + saveSlot (siguen en legacy hasta extraer applyWorld).
+  setOnLoadSlot((id) => loadSlot(id));
+  setOnSaveSlot((name) => saveSlot(name));
+  initSlotsPanel();
   // ── Persistir agentes en localStorage cuando spawnan/se borran/cambian celda ──
   // saveToStorage directo (sin debounce) para que un refresh rápido no pierda
   // los IDs recién generados — las cutscenes guardadas dependen de ellos.
@@ -5330,198 +5069,14 @@ import {
     }
   });
 
-  // ── Rooms panel ──
-  function roomKindLabel(id) {
-    const k = ROOM_KINDS.find(x => x.id === id);
-    return k ? k.label : '';
-  }
-  function renderRoomsList() {
-    const list = document.getElementById('rooms-list');
-    const rooms = getRooms();
-    const zones = getZones();
-    let html = '';
-
-    // ── Sección habitaciones cerradas (autodetectadas) ──
-    html += '<div class="rooms-section-title">🔒 Habitaciones cerradas</div>';
-    if (rooms.length === 0) {
-      html += '<div class="slots-empty">Construí paredes para cerrar un espacio.</div>';
-    } else {
-      for (const room of rooms) {
-        const colorHex = '#' + room.color.toString(16).padStart(6, '0');
-        const kindOptions = ['<option value="">— sin categoría —</option>']
-          .concat(ROOM_KINDS.map(k =>
-            `<option value="${k.id}"${k.id === room.kind ? ' selected' : ''}>${escapeHtml(k.label)}</option>`
-          )).join('');
-        const doorTag = room.hasDoor
-          ? '<span class="room-door-tag has-door">🚪 con puerta</span>'
-          : '<span class="room-door-tag no-door">🚷 sin puerta</span>';
-        html += `
-          <div class="room-card">
-            <div class="room-card-row">
-              <input type="color" class="room-color-input" data-id="r:${room.id}" value="${colorHex}" title="Color">
-              <input type="text" class="room-name-input" data-id="r:${room.id}" placeholder="Sin nombre..." value="${escapeHtml(room.name || '')}" maxlength="30">
-            </div>
-            <div class="room-card-row">
-              <select class="room-kind-select" data-id="r:${room.id}">${kindOptions}</select>
-              ${doorTag}
-              <span class="room-cells-tag">${room.cells.length}c</span>
-            </div>
-          </div>
-        `;
-      }
-    }
-
-    // ── Sección zonas abiertas (manuales) ──
-    html += '<div class="rooms-section-title">🔓 Zonas abiertas</div>';
-    if (zones.length === 0) {
-      html += '<div class="slots-empty">No hay zonas todavía.</div>';
-    } else {
-      for (const zone of zones) {
-        const colorHex = '#' + zone.color.toString(16).padStart(6, '0');
-        const kindOptions = ['<option value="">— sin categoría —</option>']
-          .concat(ROOM_KINDS.map(k =>
-            `<option value="${k.id}"${k.id === zone.kind ? ' selected' : ''}>${escapeHtml(k.label)}</option>`
-          )).join('');
-        const editing = zoneEditingId === zone.id;
-        html += `
-          <div class="room-card">
-            <div class="room-card-row">
-              <input type="color" class="room-color-input" data-id="z:${zone.id}" value="${colorHex}" title="Color">
-              <input type="text" class="room-name-input" data-id="z:${zone.id}" placeholder="Sin nombre..." value="${escapeHtml(zone.name || '')}" maxlength="30">
-              <button class="room-delete" data-id="z:${zone.id}" title="Borrar zona">🗑️</button>
-            </div>
-            <div class="room-card-row">
-              <select class="room-kind-select" data-id="z:${zone.id}">${kindOptions}</select>
-              <button class="room-edit-cells${editing ? ' editing' : ''}" data-id="z:${zone.id}">
-                ${editing ? '⏹️ Editando' : '✏️ Celdas'}
-              </button>
-              <span class="room-cells-tag">${zone.cells.length}c</span>
-            </div>
-          </div>
-        `;
-      }
-    }
-
-    html += `
-      <div class="rooms-actions">
-        <button id="btn-zone-new">+ Nueva zona</button>
-      </div>
-    `;
-    list.innerHTML = html;
-  }
-
-  // Event delegation: maneja inputs/selects de habitaciones y zonas, y los
-  // botones (delete zone, edit cells, new zone). Los data-id usan prefijo
-  // "r:" para roomMeta y "z:" para zones para distinguir.
-  function findRoomOrZone(prefixedId) {
-    if (!prefixedId) return null;
-    const colon = prefixedId.indexOf(':');
-    if (colon === -1) return null;
-    const kind = prefixedId.slice(0, colon);
-    const id = prefixedId.slice(colon + 1);
-    if (kind === 'r') return (worldGrid.roomMeta || []).find(m => m.id === id);
-    if (kind === 'z') return (worldGrid.zones || []).find(z => z.id === id);
-    return null;
-  }
-  const roomsList = document.getElementById('rooms-list');
-  roomsList.addEventListener('input', (e) => {
-    const target = e.target;
-    const entity = findRoomOrZone(target.dataset.id);
-    if (!entity) return;
-    if (target.classList.contains('room-name-input')) {
-      entity.name = target.value;
-      markWorldChanged();
-      // Si estamos editando esta zona, actualizar el banner
-      if (zoneEditingId === entity.id) {
-        document.getElementById('zone-edit-name').textContent = entity.name || 'Sin nombre';
-      }
-    } else if (target.classList.contains('room-color-input')) {
-      const hex = target.value.replace('#', '');
-      entity.color = parseInt(hex, 16);
-      markWorldChanged();
-      buildRoomsOverlay();
-    }
-  });
-  roomsList.addEventListener('change', (e) => {
-    const target = e.target;
-    const entity = findRoomOrZone(target.dataset.id);
-    if (!entity) return;
-    if (target.classList.contains('room-kind-select')) {
-      entity.kind = target.value || null;
-      markWorldChanged();
-    }
-  });
-  roomsList.addEventListener('click', (e) => {
-    const newBtn = e.target.closest('#btn-zone-new');
-    if (newBtn) {
-      const zone = createZone();
-      renderRoomsList();
-      buildRoomsOverlay();
-      // Foco al input de nombre de la nueva zona
-      setTimeout(() => {
-        const input = roomsList.querySelector(`.room-name-input[data-id="z:${zone.id}"]`);
-        if (input) input.focus();
-      }, 0);
-      return;
-    }
-    const editBtn = e.target.closest('.room-edit-cells');
-    if (editBtn) {
-      const fullId = editBtn.dataset.id;
-      const id = fullId.split(':')[1];
-      // Toggle: si ya estamos editando esta zona, terminar
-      if (zoneEditingId === id) {
-        stopZoneEdit();
-      } else {
-        startZoneEdit(id);
-      }
-      renderRoomsList();
-      return;
-    }
-    const delBtn = e.target.closest('.room-delete');
-    if (delBtn) {
-      const fullId = delBtn.dataset.id;
-      const colon = fullId.indexOf(':');
-      const kind = fullId.slice(0, colon);
-      const id = fullId.slice(colon + 1);
-      if (kind !== 'z') return;
-      const zone = (worldGrid.zones || []).find(z => z.id === id);
-      if (!zone) return;
-      const label = zone.name ? `"${zone.name}"` : 'esta zona';
-      showConfirm(`Borrar ${label}?`, () => {
-        if (zoneEditingId === id) stopZoneEdit();
-        deleteZone(id);
-        renderRoomsList();
-        buildRoomsOverlay();
-      });
-      return;
-    }
-  });
-  // Banner de editar zona — botón Terminar
-  document.getElementById('zone-edit-done').addEventListener('click', () => {
-    stopZoneEdit();
-    renderRoomsList();
-  });
-
-  document.getElementById('btn-rooms').addEventListener('click', () => {
-    const panel = document.getElementById('rooms-panel');
-    const willOpen = !panel.classList.contains('open');
-    panel.classList.toggle('open', willOpen);
-    setRoomsOverlayActive(willOpen);
-    buildRoomsOverlay();
-    if (willOpen) {
-      document.getElementById('min-cells-input').value = String(minCellsForZones);
-      renderRoomsList();
-    }
-  });
-  document.getElementById('min-cells-input').addEventListener('input', (e) => {
-    setMinCellsForZones(e.target.value);
-  });
-  // Si las habitaciones cambian (por edit de paredes) y el panel está abierto:
-  // re-render lista + overlay.
-  eventBus.on('roomsChanged', () => {
-    if (document.getElementById('rooms-panel').classList.contains('open')) {
-      renderRoomsList();
-    }
+  // Rooms panel ahora vive en src/ui/rooms-panel.ts.
+  initRoomsPanel({
+    onMarkWorldChanged: () => markWorldChanged(),
+    getZoneEditingId: () => zoneEditingId,
+    onStartZoneEdit: (id) => startZoneEdit(id),
+    onStopZoneEdit: () => stopZoneEdit(),
+    getMinCellsForZones: () => minCellsForZones,
+    onSetMinCellsForZones: (n) => setMinCellsForZones(n),
   });
 
   // ── Resize ──
@@ -10104,47 +9659,9 @@ import {
   // Pablo prefiere el hop continuo + emoji sobre la cabeza. Sin ring extra.
   function updateWorkingRings(t) { /* no-op */ }
 
-  // ── Animación de puertas ──
-  // Cada door tiene openness 0..1 (en runtime, no persiste). Si hay un agente
-  // dentro del radio de detección, target=1 (abierta); sino target=0 (cerrada).
-  // DOOR_OPEN_SPEED + DOOR_DETECT_RADIUS ahora en src/engine/state.ts.
-  function doorCenter(door) {
-    if (door.side === 'N' || door.side === 'S') {
-      return { x: (door.cx + 0.5) * CELL, z: door.cy * CELL };
-    } else {
-      return { x: door.cx * CELL, z: (door.cy + 0.5) * CELL };
-    }
-  }
-  function updateDoorAnimations(dt) {
-    if (!props || props.length === 0) return;
-    for (const door of props) {
-      if ((door.category || 'floor') !== 'door') continue;
-      // Inicializar runtime state si falta
-      if (typeof door.openness !== 'number') door.openness = 0;
-      // Calcular target según proximidad de agentes
-      const c = doorCenter(door);
-      let target = 0;
-      for (const a of agents) {
-        // px, py son posición fraccional en grid units; multiplicar por CELL para world coords
-        const ax = (typeof a.px === 'number') ? a.px * CELL : (a.cx + 0.5) * CELL;
-        const az = (typeof a.py === 'number') ? a.py * CELL : (a.cy + 0.5) * CELL;
-        const d = Math.hypot(ax - c.x, az - c.z);
-        if (d < DOOR_DETECT_RADIUS) { target = 1; break; }
-      }
-      // Lerp openness hacia target
-      if (door.openness !== target) {
-        const delta = DOOR_OPEN_SPEED * dt;
-        if (door.openness < target) door.openness = Math.min(target, door.openness + delta);
-        else                        door.openness = Math.max(target, door.openness - delta);
-        // Aplicar rotación al pivot
-        const pivot = doorPivotsById.get(door.id);
-        if (pivot) {
-          const direction = pivot.userData.doorDirection || 1;
-          pivot.rotation.y = direction * door.openness * (Math.PI / 2);
-        }
-      }
-    }
-  }
+  // Door animation eliminada — pendiente reescritura por Pablo. Las puertas
+  // quedan estáticas (openness=0). El panel rotatorio sigue creándose en
+  // walls-render pero no se anima.
 
   function animate() {
     requestAnimationFrame(animate);
@@ -10164,7 +9681,7 @@ import {
     updateAgentDragPhysics(dt);
     updateLandingAnims(dt);
     updateThoughtBubbles(dt);
-    updateDoorAnimations(dt);
+    // updateDoorAnimations(dt);   // eliminado, pendiente reescritura
     updateAgentStatusOverlays();
     updateWorkingRings(now / 1000);
     updateSpeechBubbles(dt);
