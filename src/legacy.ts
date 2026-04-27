@@ -252,6 +252,20 @@ import {
   getAgentHighlight,
 } from './engine/agent-selection';
 import {
+  initPropDrag,
+  startPropDrag,
+  updatePropDragGhost,
+  endPropDrag,
+  rebuildGhostForCurrentProp,
+  isPropDragging,
+  getDraggedProp,
+  getPropDragGhost,
+  getDragLastCx,
+  getDragLastCy,
+  getDragLastSide,
+  setDragLastSide,
+} from './engine/prop-drag';
+import {
   getMinCellsForZones,
   setMinCellsForZones,
   canPaintZoneCell,
@@ -465,15 +479,7 @@ import { formatRelTime } from './utils/format';
     localStorage.removeItem(STORAGE_KEY_V1);
     applyWorld(defaultWorld(), 'reset');
     if (typeof selectProp === 'function') selectProp(null);
-    if (draggedProp) {
-      if (dragGhost) {
-        scene.remove(dragGhost);
-        dragGhost.geometry.dispose();
-        dragGhost.material.dispose();
-        dragGhost = null;
-      }
-      draggedProp = null;
-    }
+    if (isPropDragging()) endPropDrag(null);
     for (const a of agents) { a.path = []; a.target = null; }
     lastCamQuadrant = '';
     if (typeof buildScene === 'function') buildScene();
@@ -578,14 +584,8 @@ import { formatRelTime } from './utils/format';
   let mode = 'play';
   let selectedProp = null;
   // highlightMesh ahora vive en src/engine/selection-highlight.ts.
-  let draggedProp = null;
-  let dragGhost = null;
-  let dragValid = false;
-  let dragOriginalCx = 0, dragOriginalCy = 0;
-  let dragOriginalW = 0, dragOriginalD = 0;     // para revertir si se cancela tras rotar
-  let dragOriginalSide = null;                   // para wall props
-  let dragLastSide = null;
-  let dragLastCx = 0, dragLastCy = 0;            // celda actual del cursor (ghost)
+  // Drag de muebles: state + ghost + helpers viven en src/engine/prop-drag.ts.
+  // Init de hooks (commit/cancel) está más abajo, después de declarar moveProp/buildScene.
 
   // findPropAt ahora en src/engine/world.ts.
 
@@ -1063,17 +1063,17 @@ import { formatRelTime } from './utils/format';
     if ((prop.category || 'floor') === 'door') {
       // Doors: R flipea side dentro del axis (N↔S o W↔E). Solo aplica durante
       // drag (modifica dragLastSide para que el próximo updateDragGhost lo vea).
-      const isDragging = (draggedProp === prop);
+      const isDragging = (getDraggedProp() === prop);
       if (!isDragging) return false;
+      const lastSide = getDragLastSide();
       let newSide;
-      if (dragLastSide === 'N') newSide = 'S';
-      else if (dragLastSide === 'S') newSide = 'N';
-      else if (dragLastSide === 'W') newSide = 'E';
-      else if (dragLastSide === 'E') newSide = 'W';
+      if (lastSide === 'N') newSide = 'S';
+      else if (lastSide === 'S') newSide = 'N';
+      else if (lastSide === 'W') newSide = 'E';
+      else if (lastSide === 'E') newSide = 'W';
       else return false;
-      dragLastSide = newSide;
-      // Refrescar ghost con el nuevo side en la celda actual
-      updateDragGhost(dragLastCx, dragLastCy, newSide);
+      setDragLastSide(newSide);
+      updateDragGhost(getDragLastCx(), getDragLastCy(), newSide);
       return true;
     }
     if (prop.w === prop.d) return false;
@@ -1081,30 +1081,13 @@ import { formatRelTime } from './utils/format';
     const newD = prop.w;
     const tempProp = { ...prop, w: newW, d: newD };
 
-    const isDragging = (draggedProp === prop);
+    const isDragging = (getDraggedProp() === prop);
     if (isDragging) {
-      // Durante drag, la rotación SIEMPRE se aplica al ghost.
-      // No validamos nada acá: el color del ghost (verde/rojo) ya muestra
-      // si la celda actual es válida para soltar. El usuario puede rotar
-      // libremente y luego mover el cursor a una celda donde sí entra.
+      // Durante drag, rotación se aplica al ghost (sin validar — color
+      // verde/rojo ya muestra si destino actual es válido).
       prop.w = newW;
       prop.d = newD;
-      if (dragGhost) {
-        scene.remove(dragGhost);
-        dragGhost.geometry.dispose();
-        dragGhost.material.dispose();
-      }
-      const w = prop.w * CELL - PROP_PAD * 2;
-      const d = prop.d * CELL - PROP_PAD * 2;
-      const h = prop.h;
-      const geo = new THREE.BoxGeometry(w, h, d);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x80ff80, transparent: true, opacity: 0.55, depthTest: false
-      });
-      dragGhost = new THREE.Mesh(geo, mat);
-      dragGhost.renderOrder = 998;
-      scene.add(dragGhost);
-      updateDragGhost(dragLastCx, dragLastCy);
+      rebuildGhostForCurrentProp();
       return true;
     }
 
@@ -1146,201 +1129,16 @@ import { formatRelTime } from './utils/format';
   // setPropMeshOpacity ahora en src/engine/scene-graph.ts.
 
   // ── Drag ghost (preview semi-transparente que sigue al cursor) ──
+  // startDrag + updateDragGhost + endDrag ahora en src/engine/prop-drag.ts.
+  // Wrappers: startDrag clear highlight + sets selectedProp; commit/cancel
+  // se ejecutan via hooks de init (más abajo).
   function startDrag(prop) {
-    draggedProp = prop;
-    const cat = prop.category || 'floor';
-    dragOriginalCx = prop.cx;
-    dragOriginalCy = prop.cy;
-    if (cat === 'wall' || cat === 'door') {
-      dragOriginalSide = prop.side;
-      dragLastSide = prop.side;
-    } else {
-      dragOriginalW = prop.w;
-      dragOriginalD = prop.d;
-    }
-    dragLastCx = prop.cx;
-    dragLastCy = prop.cy;
     clearSelectionHighlight();
     selectedProp = prop;
-    setPropMeshOpacity(prop, 0.32);
-    // Crear ghost con dimensiones según categoría
-    let gw, gh, gd;
-    if (cat === 'wall') {
-      const isHorizontal = (prop.side === 'N' || prop.side === 'S');
-      if (isHorizontal) { gw = CELL - WALL_PROP_PAD * 2; gd = WALL_PROP_DEPTH; }
-      else              { gw = WALL_PROP_DEPTH;          gd = CELL - WALL_PROP_PAD * 2; }
-      gh = prop.h;
-    } else if (cat === 'door') {
-      const isHorizontal = (prop.side === 'N' || prop.side === 'S');
-      if (isHorizontal) { gw = CELL - 8; gd = WALL_THICK + 2; }
-      else              { gw = WALL_THICK + 2; gd = CELL - 8; }
-      gh = DOOR_OPENING_H;
-    } else if (cat === 'rug') {
-      gw = prop.w * CELL - 8;
-      gd = prop.d * CELL - 8;
-      gh = prop.h;
-    } else {
-      gw = prop.w * CELL - PROP_PAD * 2;
-      gd = prop.d * CELL - PROP_PAD * 2;
-      gh = prop.h;
-    }
-    const geo = new THREE.BoxGeometry(gw, gh, gd);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x80ff80, transparent: true, opacity: 0.55, depthTest: false
-    });
-    dragGhost = new THREE.Mesh(geo, mat);
-    dragGhost.renderOrder = 998;
-    scene.add(dragGhost);
-    if (cat === 'wall' || cat === 'door') updateDragGhost(prop.cx, prop.cy, prop.side);
-    else                                  updateDragGhost(prop.cx, prop.cy);
+    startPropDrag(prop);
   }
-
-  function updateDragGhost(cx, cy, side) {
-    if (!dragGhost || !draggedProp) return;
-    const cat = draggedProp.category || 'floor';
-    dragLastCx = cx;
-    dragLastCy = cy;
-    if (cat === 'wall') {
-      // Recrear ghost si cambió la orientación (h: N/S, v: W/E)
-      const newOrient = (side === 'N' || side === 'S') ? 'h' : 'v';
-      const oldOrient = (dragLastSide === 'N' || dragLastSide === 'S') ? 'h' : 'v';
-      if (newOrient !== oldOrient) {
-        scene.remove(dragGhost);
-        dragGhost.geometry.dispose();
-        dragGhost.material.dispose();
-        let gw, gd;
-        if (newOrient === 'h') { gw = CELL - WALL_PROP_PAD * 2; gd = WALL_PROP_DEPTH; }
-        else                    { gw = WALL_PROP_DEPTH;          gd = CELL - WALL_PROP_PAD * 2; }
-        const gh = draggedProp.h;
-        const geo = new THREE.BoxGeometry(gw, gh, gd);
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0x80ff80, transparent: true, opacity: 0.55, depthTest: false
-        });
-        dragGhost = new THREE.Mesh(geo, mat);
-        dragGhost.renderOrder = 998;
-        scene.add(dragGhost);
-      }
-      dragLastSide = side;
-      dragValid = canPlaceProp({ ...draggedProp, side, cx, cy }, cx, cy);
-      dragGhost.material.color.setHex(dragValid ? 0x80ff80 : 0xff6060);
-      // Posicionar ghost según la cara
-      let gx, gz;
-      if (side === 'N') {
-        gx = (cx + 0.5) * CELL;
-        gz = cy * CELL + halfT + WALL_PROP_DEPTH / 2;
-      } else if (side === 'S') {
-        gx = (cx + 0.5) * CELL;
-        gz = cy * CELL - halfT - WALL_PROP_DEPTH / 2;
-      } else if (side === 'W') {
-        gx = cx * CELL + halfT + WALL_PROP_DEPTH / 2;
-        gz = (cy + 0.5) * CELL;
-      } else {  // 'E'
-        gx = cx * CELL - halfT - WALL_PROP_DEPTH / 2;
-        gz = (cy + 0.5) * CELL;
-      }
-      const gy = draggedProp.zOffset + draggedProp.h / 2;
-      dragGhost.position.set(gx - centerX, gy, gz - centerZ);
-      return;
-    }
-    if (cat === 'door') {
-      // Recrear ghost si cambió la orientación (h: N/S, v: W/E)
-      const newOrient = (side === 'N' || side === 'S') ? 'h' : 'v';
-      const oldOrient = (dragLastSide === 'N' || dragLastSide === 'S') ? 'h' : 'v';
-      if (newOrient !== oldOrient) {
-        scene.remove(dragGhost);
-        dragGhost.geometry.dispose();
-        dragGhost.material.dispose();
-        let gw, gd;
-        if (newOrient === 'h') { gw = CELL - 8; gd = WALL_THICK + 2; }
-        else                    { gw = WALL_THICK + 2; gd = CELL - 8; }
-        const gh = DOOR_OPENING_H;
-        const geo = new THREE.BoxGeometry(gw, gh, gd);
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0x80ff80, transparent: true, opacity: 0.55, depthTest: false
-        });
-        dragGhost = new THREE.Mesh(geo, mat);
-        dragGhost.renderOrder = 998;
-        scene.add(dragGhost);
-      }
-      dragLastSide = side;
-      dragValid = canPlaceProp({ ...draggedProp, side, cx, cy }, cx, cy);
-      dragGhost.material.color.setHex(dragValid ? 0x80ff80 : 0xff6060);
-      // Ghost CENTRADO en el segmento
-      let gx, gz;
-      if (side === 'N' || side === 'S') {
-        gx = (cx + 0.5) * CELL;
-        gz = cy * CELL;
-      } else {
-        gx = cx * CELL;
-        gz = (cy + 0.5) * CELL;
-      }
-      const gy = DOOR_OPENING_H / 2;
-      dragGhost.position.set(gx - centerX, gy, gz - centerZ);
-      return;
-    }
-    // floor / rug / stack
-    dragValid = canPlaceProp(draggedProp, cx, cy);
-    dragGhost.material.color.setHex(dragValid ? 0x80ff80 : 0xff6060);
-    let baseY;
-    if (cat === 'stack') {
-      const base = getFloorStackBase(cx, cy);
-      baseY = (base ? base.h : 28) + draggedProp.h / 2;
-    } else {
-      baseY = draggedProp.h / 2 + 12;
-    }
-    dragGhost.position.set(
-      (cx + draggedProp.w / 2) * CELL - centerX,
-      baseY,
-      (cy + draggedProp.d / 2) * CELL - centerZ
-    );
-  }
-
-  function endDrag(target) {
-    if (!draggedProp) return;
-    const prop = draggedProp;
-    const cat = prop.category || 'floor';
-    let applied = false;
-    if (cat === 'wall' || cat === 'door') {
-      // target = { cx, cy, side } o null
-      if (target && dragValid) {
-        draggedProp = null;
-        prop.cx = target.cx;
-        prop.cy = target.cy;
-        prop.side = target.side;
-        for (const a of agents) { a.path = []; a.target = null; }
-        buildScene();
-        selectProp(prop);
-        markWorldChanged();
-        applied = true;
-      }
-    } else {
-      // target = { cx, cy } o null
-      if (target && dragValid) {
-        draggedProp = null;
-        moveProp(prop, target.cx, target.cy);
-        applied = true;
-      }
-    }
-    if (!applied) {
-      // Cancelar: revertir orientación si rotamos durante drag (solo floor/rug)
-      if (cat !== 'wall' && cat !== 'door') {
-        if (prop.w !== dragOriginalW || prop.d !== dragOriginalD) {
-          prop.w = dragOriginalW;
-          prop.d = dragOriginalD;
-        }
-      }
-      setPropMeshOpacity(prop, 1.0);
-      draggedProp = null;
-      selectProp(prop);
-    }
-    if (dragGhost) {
-      scene.remove(dragGhost);
-      dragGhost.geometry.dispose();
-      dragGhost.material.dispose();
-      dragGhost = null;
-    }
-    dragValid = false;
-  }
+  const updateDragGhost = updatePropDragGhost;
+  const endDrag = endPropDrag;
 
   // ══════════════════════════════════════════════════════════════
   //  PLACE MODE — colocar mueble del catálogo con ghost
@@ -1727,6 +1525,28 @@ import { formatRelTime } from './utils/format';
   });
 
   // setAgentMeshOpacity ahora en src/engine/agent-helpers.ts.
+
+  // ── Drag de muebles ──
+  // State + ghost + helpers viven en src/engine/prop-drag.ts.
+  // Hooks: commit aplica el move (moveProp para floor/rug, mutación directa
+  // + buildScene para wall/door); cancel selecciona el prop sin moverlo.
+  initPropDrag({
+    onCommit: (prop, target) => {
+      const cat = (prop['category'] as string) || 'floor';
+      if (cat === 'wall' || cat === 'door') {
+        prop['cx'] = target.cx;
+        prop['cy'] = target.cy;
+        prop['side'] = (target as { side: string }).side;
+        for (const a of agents) { a.path = []; a.target = null; }
+        buildScene();
+        selectProp(prop);
+        markWorldChanged();
+      } else {
+        moveProp(prop, target.cx, target.cy);
+      }
+    },
+    onCancel: (prop) => selectProp(prop),
+  });
 
   // handleAgentLanded + startWorkingState ahora en src/game/stations.ts.
   // pickNearestProp + findWalkableAdjacentToProp ahora en src/engine/agent-helpers.ts.
@@ -2661,7 +2481,8 @@ import { formatRelTime } from './utils/format';
       sceneObjects.push(mesh);
     }
     // Si hay drag activo, restaurar opacidad reducida del mueble agarrado.
-    if (draggedProp) setPropMeshOpacity(draggedProp, 0.32);
+    const dp = getDraggedProp();
+    if (dp) setPropMeshOpacity(dp, 0.32);
     // Reconstruir techo (si estaba visible) después del rebuild de paredes
     if (roofVisible) buildRoof();
   }
@@ -3042,7 +2863,8 @@ import { formatRelTime } from './utils/format';
     } else if (leftDown && isAgentDragging()) {
       updateAgentDragGhost(e);
     } else if (leftDown && isPropDrag) {
-      const cat = draggedProp ? (draggedProp.category || 'floor') : 'floor';
+      const dp = getDraggedProp();
+      const cat = dp ? (dp.category || 'floor') : 'floor';
       if (cat === 'wall') {
         const wp = getWorldPointFromEvent(e);
         if (wp) {
@@ -3055,9 +2877,10 @@ import { formatRelTime } from './utils/format';
           const seg = findNearestWallSegment(wp);
           if (seg) {
             // Mantener side actual si coincide con axis del segmento; si no, default al axis nuevo
+            const lastSide = getDragLastSide();
             const axisIsHoriz = (seg.type === 'wallN');
-            const sideIsHoriz = (dragLastSide === 'N' || dragLastSide === 'S');
-            const side = (axisIsHoriz === sideIsHoriz) ? dragLastSide : (axisIsHoriz ? 'S' : 'E');
+            const sideIsHoriz = (lastSide === 'N' || lastSide === 'S');
+            const side = (axisIsHoriz === sideIsHoriz) ? lastSide : (axisIsHoriz ? 'S' : 'E');
             updateDragGhost(seg.cx, seg.cy, side);
           }
         }
@@ -3124,7 +2947,8 @@ import { formatRelTime } from './utils/format';
         return;
       }
       if (isPropDrag) {
-        const cat = draggedProp ? (draggedProp.category || 'floor') : 'floor';
+        const dp = getDraggedProp();
+        const cat = dp ? (dp.category || 'floor') : 'floor';
         let target = null;
         if (cat === 'wall') {
           const wp = getWorldPointFromEvent(e);
@@ -3137,9 +2961,10 @@ import { formatRelTime } from './utils/format';
           if (wp) {
             const seg = findNearestWallSegment(wp);
             if (seg) {
+              const lastSide = getDragLastSide();
               const axisIsHoriz = (seg.type === 'wallN');
-              const sideIsHoriz = (dragLastSide === 'N' || dragLastSide === 'S');
-              const side = (axisIsHoriz === sideIsHoriz) ? dragLastSide : (axisIsHoriz ? 'S' : 'E');
+              const sideIsHoriz = (lastSide === 'N' || lastSide === 'S');
+              const side = (axisIsHoriz === sideIsHoriz) ? lastSide : (axisIsHoriz ? 'S' : 'E');
               target = { cx: seg.cx, cy: seg.cy, side };
             }
           }
@@ -3226,7 +3051,7 @@ import { formatRelTime } from './utils/format';
         rotatePlaceTemplate();
       } else {
         // Rotar el mueble draggeado (prioridad) o el seleccionado
-        const target = draggedProp || selectedProp;
+        const target = getDraggedProp() || selectedProp;
         if (target) { e.preventDefault(); rotateProp(target); }
       }
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -3323,13 +3148,7 @@ import { formatRelTime } from './utils/format';
     // Limpiar estado de modos anteriores
     if (mode !== 'edit') {
       selectProp(null);
-      if (draggedProp && dragGhost) {
-        scene.remove(dragGhost);
-        dragGhost.geometry.dispose();
-        dragGhost.material.dispose();
-        dragGhost = null;
-        draggedProp = null;
-      }
+      if (isPropDragging()) endPropDrag(null);
     }
     if (mode !== 'build') {
       cancelWallDrag();
