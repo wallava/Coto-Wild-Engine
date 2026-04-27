@@ -66,6 +66,35 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 12:10 - [INTERACTIVA] D4 ceUpdate body partial split → cutscene/runtime.ts
+
+**Plan inicial**: extracción conservadora de 2 secciones del body de ceUpdate (el más sensible, orden per-frame).
+
+**Review loop con Codex**: 1 round (adversarial-review obligatorio).
+- Codex bloqueantes (2): preservar try/catch en wrappers legacy (no en módulo) + condición POV early `useGizmoPose || kfs.length === 0` correcta.
+- Codex sugerencias: `fxEntities ?? []` para tolerar undefined; orden FX entre camera-interp y fade preservado; `import type FxInstance` no runtime.
+- Codex confirmó: cutoff 8+ callbacks válido → per-track agent y camera interp diferidos. evaluateFxOnFrame seguro de extraer.
+- Total rounds: 1.
+
+**Tasks**:
+
+### CLAUDE-D4: extraer applyPovEarlyGizmoPose + evaluateFxOnFrame
+- Archivos: `src/cutscene/runtime.ts` (+135 LOC), `src/legacy.ts` (~70 LOC reemplazadas por 2 wrappers thin con try/catch).
+- Funciones extraídas:
+  - `applyPovEarlyGizmoPose(camera, applyKfs, gizmoDrag, applyToCamera)` — paridad legacy:4275-4290.
+  - `evaluateFxOnFrame(fxEntities, currentScene, playhead, activeInstances, filterKfsToScene, fxPresets, spawn, despawn, update, interpolate)` — paridad legacy:4503-4553.
+- Try/catch + `console.warn` mantenido en wrappers legacy (per Codex bloqueante 1).
+- Validación: tsc ✅ (1 fix de TS2322 en runtime.ts línea 178), smoke-test ✅, validación visual Pablo ✅.
+- Status: ✅ Done.
+
+**Diferido permanente del body de ceUpdate** (justificado, NO se va a extraer):
+- Header (playhead tick + applyKfs flag + gap return) — 40 LOC.
+- Walls eval — DOM roof button + state.currentHiddenIds Set.
+- Per-track agent eval (~100 LOC) — 8+ callbacks (showSpeechBubble, applyAnimEffect, resetAgentAnim, syncAgentMesh, getDraggedAgent, setAgentFacing, lastKfWithInheritance, filterKfsToScene). Codex confirmó cutoff anti-pattern.
+- Camera interp (~95 LOC) — parent agent lookup + agents/CELL/centerX/Z global coupling.
+
+---
+
 ## 2026-04-27 11:50 - [INTERACTIVA] D3 POV controls + scrubbing → editor/playback.ts
 
 **Plan inicial**: extraer cePreviewMode + showPovControls + hidePovControls + updatePovOverlayTime + updatePovFrame + ceScrubFromEvent + POV_ASPECTS al módulo nuevo `src/editor/playback.ts`.

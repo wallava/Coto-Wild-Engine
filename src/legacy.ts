@@ -134,6 +134,8 @@ import {
   isCameraLocked as runtimeIsCameraLocked,
   isCutsceneControlled as runtimeIsCutsceneControlled,
   computeFadeOpacity as runtimeComputeFadeOpacity,
+  applyPovEarlyGizmoPose as runtimeApplyPovEarlyGizmoPose,
+  evaluateFxOnFrame as runtimeEvaluateFxOnFrame,
 } from './cutscene/runtime';
 import {
   updateGizmoPose as editorUpdateGizmoPose,
@@ -4269,23 +4271,16 @@ import { formatRelTime } from './utils/format';
     }
     const applyKfs = ceState.playing || ceState.scrubbing || ceState.applyOnce;
     ceState.applyOnce = false;
-    // ── CÁMARA CINEMÁTICA ── corre independiente de applyKfs cuando POV
-    // está activo. Permite que WASD/QE/RF afecten el render sin tener que
-    // recomputar walls/agentes/fx cada frame (que causaba flicker).
+    // ── POV early gizmo apply ── (per-frame: aplica pose del gizmo si POV
+    // activo y no hay aplicación de kfs). Try/catch en wrapper para no
+    // cortar el resto del frame (walls/agentes/cam interp/fx/fade).
     try {
-      const cam = ceState.cutscene.camera;
-      if (cam && cam.povActive) {
-        // Sin animación activa o sin kfs: usar pose actual del gizmo (editada por user)
-        const useGizmoPose = !applyKfs && !ceState._gizmoDrag;
-        const kfs = ((cam.keyframes) || []).filter(k => k.position && k.target);
-        if (useGizmoPose || kfs.length === 0) {
-          applyPoseToCinematicCamera(
-            cam.gizmoPosition, cam.gizmoTarget, cam.gizmoRoll || 0, cam.gizmoLens || 50
-          );
-        }
-        // Si applyKfs (playing/scrubbing) → la pose interpolada se aplica abajo
-        // (en el bloque grande de cámara cinemática).
-      }
+      runtimeApplyPovEarlyGizmoPose(
+        ceState.cutscene.camera,
+        applyKfs,
+        !!ceState._gizmoDrag,
+        applyPoseToCinematicCamera,
+      );
     } catch (err) {
       console.warn('[ceUpdate camera POV early] error:', err);
     }
@@ -4507,54 +4502,21 @@ import { formatRelTime } from './utils/format';
       console.warn('[ceUpdate camera] error:', err);
     }
 
-    // ── FX KEYFRAMES (entidades movibles con sprite seguidor) ──
-    // Cada plano es isla: solo activamos FX cuyos kfs caen en el plano actual.
+    // ── FX eval ── per-entity spawn/update/despawn vía cutscene/runtime.
+    // Try/catch en wrapper para no cortar el fade overlay siguiente.
     try {
-      const fxEntities = ceState.cutscene.fx ? ceState.cutscene.fx.entities : [];
-      const activeIds = new Set();
-      for (const ent of fxEntities) {
-        if (!ent.keyframes || ent.keyframes.length === 0) continue;
-        // Filtrar kfs al plano actual
-        const kfsInScene = ceFilterKfsToScene(ent.keyframes, currentScene);
-        if (kfsInScene.length === 0) continue;
-        const dur = ent.duration || FX_PRESETS[ent.kind || 'smoke']?.duration || 3.0;
-        const firstT = kfsInScene[0].t;
-        const lastT = kfsInScene[kfsInScene.length - 1].t;
-        const endT = lastT + dur;
-        const ph = ceState.playhead;
-        if (ph >= firstT && ph < endT) {
-          activeIds.add(ent.id);
-          let inst = _activeFxInstances.get(ent.id);
-          if (!inst) {
-            inst = spawnFxInstance({ fx: ent.kind });
-            if (inst) _activeFxInstances.set(ent.id, inst);
-          }
-          if (inst) {
-            // Interpolar posición entre kfs DEL plano
-            let prev = null, next = null;
-            for (let i = 0; i < kfsInScene.length; i++) {
-              if (kfsInScene[i].t <= ph) prev = kfsInScene[i];
-              else { next = kfsInScene[i]; break; }
-            }
-            let target = null;
-            if (prev && next) {
-              const lerp = (next.t === prev.t) ? 0 : (ph - prev.t) / (next.t - prev.t);
-              target = ceFxInterpolateTarget(prev.target, next.target, lerp);
-            } else if (prev) target = prev.target;
-            else if (next) target = next.target;
-            const totalDur = endT - firstT;
-            const progress = totalDur > 0 ? (ph - firstT) / totalDur : 0;
-            updateFxInstance({ fx: ent.kind, target, duration: totalDur }, inst, progress);
-          }
-        }
-      }
-      // Despawn los que ya no están activos
-      for (const [id, inst] of _activeFxInstances.entries()) {
-        if (!activeIds.has(id)) {
-          despawnFxInstance(inst);
-          _activeFxInstances.delete(id);
-        }
-      }
+      runtimeEvaluateFxOnFrame(
+        ceState.cutscene.fx ? ceState.cutscene.fx.entities : [],
+        currentScene,
+        ceState.playhead,
+        _activeFxInstances,
+        ceFilterKfsToScene,
+        FX_PRESETS,
+        spawnFxInstance,
+        despawnFxInstance,
+        updateFxInstance,
+        ceFxInterpolateTarget,
+      );
     } catch (err) {
       console.warn('[ceUpdate fx] error:', err);
     }
