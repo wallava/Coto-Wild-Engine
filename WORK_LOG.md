@@ -66,6 +66,33 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 14:15 - [FASE 3 INTERACTIVA] R1 schemas Zod (paralelo Claude+Codex)
+
+**Plan inicial**: 2 archivos paralelos. Claude crea cutscene/schema.ts; Codex en background crea engine/schema.ts.
+
+**Review loop con Codex**: 1 round.
+- Codex bloqueantes (2 aceptados):
+  1. `AgentKfSchema` discriminatedUnion limitado a 3 tipos rompía con kfs legacy / type custom (model.ts:73 permite `type: string`). Cambio a `z.string().min(1)` + campos opcionales.
+  2. `FxTargetSchema` catch-all permitía `{kind:'agent'}` sin id. Agregado refine que excluye 'agent'/'cell' en rama genérica.
+- Codex sugerencias aceptadas: comentario en SceneSchema sobre canónico post-edición vs drag transient.
+- Codex confirmó: passthrough en kfs (no strict hasta migration), unknown[][] en walls, unknown en prop top/right/left, GRID dim validation diferida a R3, mensajes Zod default sin traducir.
+
+**Tasks**:
+
+### CLAUDE-R1: src/cutscene/schema.ts
+- 198 LOC. Schemas: Vec3, Scene, CameraKf, WallsKf, FxTarget (union 3 ramas con refine), FxKf, FxEntity, AgentKf (string-typed con campos opcionales), AgentTrack, CutsceneAgent, Cutscene.
+- 11 tipos exportados vía z.infer<>.
+
+### CODEX-R1: src/engine/schema.ts (delegated)
+- 84 LOC. Schemas: RoomMeta, Zone, Prop, Agent, World.
+- 5 tipos exportados.
+- Codex session: ad6bce15e35b11a24 (background, completed).
+
+**Validación**: tsc ✅, smoke-test ✅, npm test 16/16 ✅.
+**Status**: ✅ Done. Sin validación visual (sin wiring).
+
+---
+
 ## 2026-04-27 12:10 - [INTERACTIVA] D4 ceUpdate body partial split → cutscene/runtime.ts
 
 **Plan inicial**: extracción conservadora de 2 secciones del body de ceUpdate (el más sensible, orden per-frame).
