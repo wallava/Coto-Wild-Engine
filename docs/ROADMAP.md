@@ -2,212 +2,323 @@
 
 Este archivo es la lista viva de lo que falta. Se actualiza con cada sesión.
 
+---
+
+## Estructura por horizontes
+
+CWE existe en tres horizontes (ver `VISION.md`). Cada feature pertenece a uno:
+
+- **MVP (horizonte 1)**: herramienta personal de Pablo para AGENTS.INC.
+- **AGENTS.INC publicado (horizonte 2)**: el juego en una web pública.
+- **CWE producto (horizonte 3)**: motor para que otros creadores construyan.
+
+Solo el horizonte 1 tiene plazos. Los otros dos son post-MVP.
+
+---
+
 ## Convenciones
 
 - 🔴 Bloqueante / urgente
 - 🟠 Alta prioridad
 - 🟡 Media
 - 🟢 Baja / nice-to-have
-- ✅ Hecho (mantener algunas como referencia histórica)
+- ✅ Hecho
 
 ---
 
-## 🔴 Migración del monolito
+# HORIZONTE 1 — MVP
 
-Sin esto, todo lo demás está en pausa.
+Ver `MVP_SCOPE.md` para alcance estricto.
 
-- [x] **Fase 0**: setup Vite + TS + tooling
-- [x] **Fase 1**: bulk del monolito a `legacy.ts` (con `@ts-nocheck`),
-  imports CDN → ES modules pinneados.
-- [ ] **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con
-  APIs explícitos. **58 módulos extraídos hasta 2026-04-27** (~50%
-  del legacy migrado, 6798 líneas restantes). Ver `ARCHITECTURE.md`
-  para inventario.
-- [ ] **Fase 3**: schemas Zod + migrations de datos persistidos.
-- [ ] Verificar paridad con monolito (todo lo que andaba antes anda ahora).
+## 🟠 Migración del monolito
 
-### Sesión 2026-04-27 — extracciones cerradas
+- ✅ **Fase 0**: setup Vite + TS + tooling
+- ✅ **Fase 1**: bulk del monolito a `legacy.ts` con `@ts-nocheck`, imports CDN → ES modules pinneados
+- 🟠 **Fase 2**: separar `engine/`, `game/`, `cutscene/`, `editor/` con APIs explícitos. **40+ módulos extraídos al 2026-04-27 (~50% migrado, ~5,800 líneas restantes en legacy.ts).** Ver `ARCHITECTURE.md` para inventario.
+- ✅ **Fase 3**: schemas Zod + migrations de datos persistidos. **Cerrada con 100 tests verdes + cuarentena de data corrupta + validation runtime cableada.**
+- 🔲 Verificar paridad final con monolito (todo lo que andaba antes anda ahora).
 
-- ✅ agent-chassis (spawn + mesh + facing + sync)
-- ✅ agent-drag (Tomodachi-style ghost + spring physics)
-- ✅ agent-selection (highlight ring + raycast click)
-- ✅ agent-status (ensure/clear + position update)
-- ✅ agent-helpers (assignAgentTarget + setAgentMeshOpacity + nearest helpers)
-- ✅ stations (handleAgentLanded + startWorkingState + pickRandomDestination + updateAgents)
-- ✅ needs queries (getAgentMostCriticalNeed + findZoneForNeed + updateAgentNeeds)
-- ✅ prop-drag (ghost wireframe + commit/cancel hooks)
-- ✅ place-mode (catalog placement + door arrow)
-- ✅ wall-build (Sims-style drag con axis-lock)
-- ✅ camera-iso (theta/phi/dist/zoom/pan + updateCamera) — Codex Wave 1
-- ✅ spawners (random prop + remove last + try agent) — Codex Wave 1
-- ✅ paint-tool (state + tool runtime + flood fill) — Codex Wave 2
-- ✅ zone-edit (start/stop + drag add/remove) — Codex Wave 3
-- ✅ loadWorldData (geometry+props+zones — agents quedan en legacy hasta extraer applyWorld completo)
+### Sesión 2026-04-27 — extracciones cerradas (referencia histórica)
 
-### Sesión 2026-04-27 (continuación) — cutscene chunk 1 (modelo puro)
+Engine:
+- ✅ agent-chassis, agent-drag, agent-selection, agent-status, agent-helpers
+- ✅ stations, needs queries, prop-drag, place-mode, wall-build
+- ✅ camera-iso, spawners (Codex Wave 1)
+- ✅ paint-tool (Codex Wave 2)
+- ✅ zone-edit (Codex Wave 3)
+- ✅ loadWorldData (geometry+props+zones; agents quedan en legacy hasta extraer applyWorld completo)
 
-- ✅ cutscene/model.ts (tipos + forEachCutsceneKf iterator)
-- ✅ cutscene/scenes.ts (ensureSceneConsistency mutante + computeSceneView puro split)
-- ✅ cutscene/inheritance.ts (chain + lastKfWithInheritance + kfIsVisible)
-- ✅ cutscene/keyframes.ts (shift/warp/reassign/filter/assign)
-- ✅ cutscene/camera.ts (interpCameraPose)
-- ✅ cutscene/walls.ts (computeWallStateAt)
+Cutscene chunk 1 (modelo puro):
+- ✅ cutscene/model, scenes, inheritance, keyframes, camera, walls
+
+Cutscene Fase 2 diferidos:
+- ✅ Diferido 1: ceStartGroupDrag → editor/multi-sel
+- ✅ Diferido 2: ceUpdateToolbarFields → editor/toolbar
+- ✅ Diferido 3: POV controls + scrubbing → editor/playback
+- ✅ Diferido 4: ceUpdate POV early + FX eval → cutscene/runtime
+
+Schemas Zod (Fase 3):
+- ✅ Fase 3.1: schemas Zod cutscene + world
+- ✅ Fase 3.2: validateCutscene + tests schema cutscene
+- ✅ Fase 3.3: validateWorld + tests engine schema
+- ✅ Fase 3.4: migrations cutscene + world
+- ✅ Fase 3.5: cabling validate+migrate en callers reales (loadFromStorage + getSavedCutscene)
 
 ### Pendientes Fase 2 grandes
 
-- **CUTSCENE EDITOR** — chunk 1 modelo puro hecho (6 archivos en
-  `src/cutscene/`). **Pendiente sesión dedicada**:
+- **CUTSCENE EDITOR** — chunk 1 modelo puro hecho, diferidos cerrados, schemas cerrados. **Pendiente**:
   - Editor lifecycle (ceOpen/ceClose — CRITICAL: muta agents global)
-  - Runtime evaluation (ceUpdate, partir por subsistema)
-  - Persistence/undo (ceSnapshot, ceUndo, ceRedo, ceApplyCutsceneData)
+  - Runtime evaluation (ceUpdate, resto del body)
+  - Persistence/undo (ceSnapshot, ceUndo, ceRedo)
   - Timeline rendering (DOM heavy)
-  - Camera gizmo editor wrapper
+  - Cámara gizmo editor wrapper
   - FX system (singleton mutable)
-  - POV controls
-  - Toolbar UI
-  - Multi-select + lasso
-  - Drag/snap ops
-  - ceInsertCutAt (cuando snapshot/render disponibles)
+  - POV controls completos
+  - Toolbar UI completa
   - Mouse handlers globales
   - Plan detallado: `docs/CUTSCENE_EXTRACT_PLAN.md`
-- **applyWorld + loadSlot + resetWorldToDefault** — cierre persistencia
-  (loadWorldData ya extraído; falta agents restoration).
-- **buildScene loop + corner posts + props render** — chunk medio del IIFE,
-  ~300 líneas estructural.
+- **applyWorld + loadSlot + resetWorldToDefault** — cierre persistencia (loadWorldData ya extraído; falta agents restoration).
+- **buildScene loop + corner posts + props render** — chunk medio del IIFE, ~300 líneas estructural.
 - **Animate loop + boot** → `main.ts` orchestrator final.
-- **Mouse handlers globales** — bloque grande en legacy, paint-tool y
-  zone-edit ya leen state via getters (Codex review identificó como
-  blocker para paralelizar más extracciones). Próxima sesión.
-- **TECHO ROOF** (~480 líneas) — **NO EXTRAER NUNCA**. Tres intentos
-  consecutivos (sesión 2026-04-26 y 2026-04-27) dispararon
-  `ReferenceError: Cannot access 'ceState' before initialization` al
-  cargar la página. La causa raíz nunca se identificó: el bloque ROOF
-  no referencia ceState directamente, pero al moverlo (extraer Y/O
-  pegar de vuelta de monolito) algo del init order rompe. Pablo
-  decidió reescribir el sistema de roof desde cero cuando llegue. Hasta
-  entonces, dejarlo donde está en `legacy.ts` intacto.
+- **Mouse handlers globales** — bloque grande en legacy. Próxima sesión.
+- **TECHO ROOF** (~480 líneas) — **NO EXTRAER NUNCA**. Tres intentos consecutivos dispararon `ReferenceError: Cannot access 'ceState' before initialization`. La causa raíz nunca se identificó. Pablo decidió reescribir el sistema de roof desde cero cuando llegue. Hasta entonces, dejarlo donde está en `legacy.ts` intacto.
 - **Door animation** — eliminada por bug pre-existente, Pablo reescribirá.
 
-### Debt arquitectónico identificado (Codex review 2026-04-27)
+### Debt arquitectónico identificado
 
-- `src/engine/agent-texture.ts` importa `../game/agent-kits` — viola
-  layering "engine no importa game". Pre-existente, fuera de scope de
-  Fase 2 actual. Corregir en sesión de cleanup.
+- `src/engine/agent-texture.ts` importa `../game/agent-kits` — viola layering "engine no importa game". Pre-existente, fuera de scope de Fase 2 actual. Corregir en sesión de cleanup.
+- 4 diferidos permanentes de Fase 2 cutscene (todos justificados, no se extraerán):
+  - Body de ceUpdate: header, walls eval, per-track agent eval, camera interp.
+  - cePreviewMode orchestrator + cePovToggle.click handler.
+  - ceStartGroupDrag listeners de mousemove/mouseup/Escape (orchestrator con baseline serialization).
+  - Razón común: anti-pattern de sobre-inyección (8+ callbacks) o orchestrators con coordinación cruzada que no compensa parametrizar.
 
-Ver detalle en `ARCHITECTURE.md`.
+## 🟠 Internacionalización
 
----
+Setup desde fase inicial post-migración.
 
-## 🟠 DSL de cutscenes (post-migración)
+- 🔲 Setup `i18next` o equivalente.
+- 🔲 Crear `locales/es.json` y `locales/en.json`.
+- 🔲 Extraer todos los strings de UI a las locales.
+- 🔲 Toggle de idioma en settings.
+- 🔲 Detección de idioma del input para los generators de IA.
+- 🔲 Estructura preparada para agregar idiomas adicionales sin refactor.
 
-La feature más importante una vez separado el código. Desbloquea el flujo "Pablo describe escena en lenguaje natural → Claude genera DSL → editor muestra kfs editables".
+## 🟠 Capa LLM y agentes con LLM real
 
-- [ ] Parser de markdown narrativo a AST.
-- [ ] Schema del AST (tipos TypeScript).
-- [ ] Compiler AST → cutscene model.
-  - [ ] Resolver agentes y locations a IDs/cells.
-  - [ ] Calcular poses de cámara desde shot types.
-  - [ ] Compilar acciones a kfs (move, speak, animation).
-  - [ ] Simulación temporal para resolver "camina_a X" en función del estado del mundo en t.
-- [ ] **Shot types** mínimos:
-  - [ ] `wide_establishing`
-  - [ ] `medium_shot`
-  - [ ] `close_up`
-  - [ ] `two_shot`
-  - [ ] `over_the_shoulder`
-  - [ ] `top_down`
-  - [ ] `tracking`
-- [ ] **Camera moves**:
-  - [ ] `dolly_in` / `pull_out`
-  - [ ] `pan`
-  - [ ] `push_in`
-- [ ] **Agent actions**:
-  - [ ] `camina_a` (cell o agente)
-  - [ ] `mira_a`
-  - [ ] `dice "..."`
-  - [ ] `anima <preset>`
-  - [ ] `toma <prop>`
-  - [ ] `espera <Ns>`
-- [ ] Validación con errores legibles (referencia inexistente, agente inalcanzable, etc.).
-- [ ] CLI: `npm run cutscene-compile path/to/scene.md`.
-- [ ] Round-trip básico: editar en editor → marca DSL como desactualizado.
+Esta es la base de AGENTS.INC. Sin esto, el juego no es lo que queremos.
 
-Ver detalle en `CUTSCENES.md` sección "DSL".
+- 🔲 **Capa LLM básica** (`src/llm/`): cliente Anthropic con streaming.
+- 🔲 Settings UI para API key.
+- 🔲 **Action schemas** (Zod) y action handlers.
+- 🔲 **AgentBrain** con `speak(target, context)`.
+- 🔲 **Personalidades concretas** (5-10): CEO, junior, senior arrogante, RRHH, intern, etc.
+- 🔲 **Streaming bubbles**: speech aparece word-by-word.
+- 🔲 **Trigger automático de encuentros**: agentes adyacentes hablan.
+- 🔲 **Persistencia de memoria** en localStorage.
+- 🔲 **Score de importance** + memoria episódica.
+- 🔲 **Acciones del LLM** (no solo diálogo).
 
----
+Ver `AGENTS_LLM.md` para detalle.
 
-## 🟠 Cierre del editor de cutscenes
+## 🟠 AI Orchestration: tres generators de Pablo
 
-- [ ] **Render MP4 vía WebCodecs** — exportar la cutscene como video. Cierre lógico del módulo.
-- [ ] **Transiciones entre planos** — modelo ya preparado (`scene.transitionIn = { type, duration }`). Tipos: cut (default), fade, dissolve, wipe.
-- [ ] **Audio tracks** — música + SFX sincronizados con kfs. Probablemente un nuevo tipo de track.
-- [ ] **Copy/paste con multi-sel** — Cmd+C / Cmd+V para mover kfs y planos entre puntos del timeline.
-- [ ] **Markers/notas** — anotaciones en el timeline (no afectan la reproducción).
+Las herramientas que aceleran el desarrollo.
 
----
+- 🔲 **Personality Generator**: descripción → Personality completa.
+- 🔲 **Cutscene Generator**: descripción → DSL compilable.
+- 🔲 **World Iterator**: instrucción → modifica mundo existente.
 
-## 🟠 Mecánicas de gameplay (AGENTS.INC)
+Ver `AI_ORCHESTRATION.md` para detalle.
 
-Lo que falta para que el juego sea jugable más allá del editor.
+## 🟠 DSL de cutscenes
 
-- [ ] **B.9 Encuentros sociales** — agentes adyacentes hablan automáticamente. Templates de diálogo procedural.
-- [ ] **B.11 Mini-juego del working state** — reemplazar los 8s estáticos con cámara zoom + tap-fest. Microtarea ridícula (escribir email, validar PR, asistir standup).
-- [ ] **B.8 HeldItem dinámico** — slot existe en el agente, falta wire visual + pickup/drop. Ejemplo: agente toma café de la cocina, lleva taza visible, llega a su escritorio, deposita.
-- [ ] **D.13 Construcción mediada por agentes** — muebles "en obra" mientras un agente los arma. Tarda tiempo, no aparecen instantáneos.
+La feature que desbloquea autoría rápida de Pablo.
 
----
+- 🔲 Parser de markdown narrativo a AST.
+- 🔲 Schema del AST (TypeScript + Zod).
+- 🔲 Compiler AST → cutscene model.
+  - 🔲 Resolver agentes y locations a IDs/cells.
+  - 🔲 Calcular poses de cámara desde shot types.
+  - 🔲 Compilar acciones a kfs.
+  - 🔲 Simulación temporal para resolver "camina_a X" en función del estado del mundo en t.
+- 🔲 **Shot types** mínimos:
+  - 🔲 `wide_establishing`
+  - 🔲 `medium_shot`
+  - 🔲 `close_up`
+  - 🔲 `two_shot`
+  - 🔲 `over_the_shoulder`
+- 🔲 **Camera moves**:
+  - 🔲 `dolly_in` / `pull_out`
+  - 🔲 `pan`
+  - 🔲 `push_in`
+- 🔲 **Agent actions**:
+  - 🔲 `camina_a` (cell o agente)
+  - 🔲 `mira_a`
+  - 🔲 `dice "..."`
+  - 🔲 `anima <preset>`
+  - 🔲 `espera <Ns>`
+- 🔲 Validación con errores legibles.
+- 🔲 CLI: `npm run cutscene-compile path/to/scene.md`.
 
-## 🟡 Engine improvements
+Ver `CUTSCENES.md` para detalle.
 
-Todo lo que es performance o feature del engine, no del juego.
+## 🟡 AGENTS.INC: contenido inicial
 
-- [ ] **Dirty rebuild de paredes** — hoy se reconstruye toda la geometría de paredes en cada cambio. Debería rebuildear solo las cells afectadas.
-- [ ] **Parent/child stacks de meshes** — reducir draw calls agrupando meshes estáticas.
-- [ ] **Pathfinding cacheado** — hoy se recalcula. Cachear resultados por (start, end) hasta que cambie el grid.
-- [ ] **Catálogo registrable de props** — hoy los props están hardcodeados. Sistema de registro para permitir que cada juego registre los suyos.
-- [ ] **Animation presets registrables** — idem.
-- [ ] **Grids no cuadrados** — hoy es 6×6 fijo. Soportar formas en L, T, etc.
-- [ ] **Estética del techo** — Pablo dijo "lo resolveremos luego". Toggle visual + transparencia + lighting.
+Para tener un mundo demostrable.
 
----
+- 🔲 5-10 personalidades base generadas y refinadas.
+- 🔲 Mundo de oficina con layout, props, zonas.
+- 🔲 5-10 cutscenes narrativas demostrando el juego.
+- 🔲 Encuentros sociales LLM funcionando.
+- 🔲 Mecánicas de gameplay básicas (necesidades, working state, social).
 
-## 🟡 UX y polish
+## 🟡 Tests críticos
 
-- [ ] Reorganización de planos por swap (no solo drag y push).
-- [ ] Onboarding tutorial.
-- [ ] Tooltips contextuales (las primeras veces que el usuario hace algo nuevo).
-- [ ] Settings panel (volumen, calidad, idioma).
-- [ ] Pause menu.
-- [ ] Save slots múltiples (no solo localStorage genérico).
+Solo lo más sensible.
 
----
-
-## 🟡 Test infrastructure
-
-Cuando el código esté separado, agregar tests.
-
-- [ ] Setup Vitest.
-- [ ] Tests unitarios para `cutscene/inheritance.ts` (la lógica más sensible).
-- [ ] Tests para `cutscene/compiler.ts` con DSL → cutscene fixtures.
-- [ ] Tests para `engine/coords.ts` (conversión grid ↔ three).
-- [ ] Tests para `engine/walls.ts` (placement, removal, corner detection).
-- [ ] Tests E2E con Playwright (flujos críticos del editor).
+- ✅ Setup Vitest.
+- ✅ `cutscene/inheritance.test.ts` — la cadena escenaRootId.
+- ✅ `cutscene/schema.test.ts` + `engine/schema.test.ts`.
+- ✅ `cutscene/migrations.test.ts` + `engine/migrations.test.ts`.
+- 🔲 `cutscene/compiler.test.ts` — DSL → cutscene fixtures.
+- 🔲 `engine/coords.test.ts` — conversión grid ↔ three.
+- 🔲 `engine/walls.test.ts` — placement + corners.
+- 🔲 `ai/action-handlers.test.ts` — cada action con su efecto esperado.
+- 🔲 Tests E2E con Playwright (flujos críticos del editor).
 
 ---
 
-## 🟢 Stretch: motor reusable como producto
+# HORIZONTE 2 — AGENTS.INC publicado
 
-Una vez que el engine esté limpio y separado:
+Cuando MVP esté completo y AGENTS.INC desarrollado, antes de publicar.
 
-- [ ] Documentar API público.
-- [ ] Crear segundo juego como prueba ("Coto: agente número 2").
-- [ ] Considerar empaquetar como package npm.
-- [ ] Considerar versión standalone con Tauri (desktop app).
-- [ ] Posible producto independiente: editor de cutscenes como herramienta para devs de otros juegos iso.
+## 🔲 Backend ligero
+
+- 🔲 Setup Supabase (auth + DB + storage).
+- 🔲 Schema de DB para mundos de jugadores.
+- 🔲 Auth básica (email/Google).
+- 🔲 LLM proxy via Cloudflare Workers (esconder API key, rate limiting).
+
+## 🔲 Features para jugadores externos
+
+- 🔲 Sistema de save/load de progreso.
+- 🔲 Onboarding básico para usuarios nuevos del juego.
+- 🔲 Settings de jugador (volumen, calidad, idioma).
+
+## 🔲 Output compartible
+
+- 🔲 Render MP4 vía WebCodecs.
+- 🔲 Screenshots con composición automática.
+- 🔲 Links públicos a partidas/mundos.
+
+## 🔲 Mecánicas avanzadas de gameplay
+
+Pendientes del juego que se difieren al horizonte 2:
+
+- 🔲 **B.11 Mini-juego del working state** — reemplazar 8s estáticos con tap-fest.
+- 🔲 **B.8 HeldItem dinámico** — pickup/drop visual.
+- 🔲 **D.13 Construcción mediada por agentes** — muebles "en obra".
+- 🔲 Pause menu, save slots múltiples.
+
+## 🔲 Cierre del editor de cutscenes
+
+- 🔲 Render MP4 vía WebCodecs.
+- 🔲 Transiciones entre planos (modelo ya preparado).
+- 🔲 Audio tracks (música + SFX).
+- 🔲 Copy/paste con multi-sel (Cmd+C/V).
+- 🔲 Markers/notas en timeline.
+
+## 🔲 Marketing y publicación
+
+- 🔲 Landing page.
+- 🔲 Presencia en redes (Twitter, TikTok).
+- 🔲 Trailer/demo video.
+- 🔲 Lanzamiento en HN, ProductHunt.
+
+## 🔲 Analytics básicos
+
+- 🔲 Telemetría de gameplay (qué hacen los jugadores).
+- 🔲 Crash reporting.
+- 🔲 LLM cost monitoring.
 
 ---
 
-## ✅ Hecho (referencia histórica)
+# HORIZONTE 3 — CWE como producto
+
+Largo plazo y opcional. Ver `PRODUCT_FUTURE.md`.
+
+## 🔲 Onboarding mágico
+
+- 🔲 Canvas vacío con input que genera mundo en 60s.
+- 🔲 Templates de partida (oficina, taberna medieval, etc.).
+- 🔲 Tooltips contextuales con GIFs.
+
+## 🔲 World Generator completo
+
+- 🔲 Descripción libre → mundo de cero.
+- 🔲 Composición coherente de layout + props + agentes + relaciones.
+- 🔲 Templates inteligentes como base.
+
+## 🔲 Conversation Manager
+
+- 🔲 Memoria persistente del flow de diseño.
+- 🔲 Chat lateral persistente.
+- 🔲 Sugerencias de iteración contextual.
+
+## 🔲 Asset packs adicionales
+
+- 🔲 Medieval pack (taberna, dungeon, castillo).
+- 🔲 School pack (aula, recreo, biblioteca).
+- 🔲 Sci-fi pack (estación espacial, lab).
+- 🔲 Sistema de carga dinámica de packs.
+
+## 🔲 Object Builder con IA
+
+- 🔲 Descripción de objeto → mesh 3D low-poly.
+- 🔲 Pipeline de optimización.
+- 🔲 Storage de assets de usuario.
+- 🔲 Iteración del objeto generado.
+
+## 🔲 Marketplace y comunidad
+
+- 🔲 Mundos públicos compartibles.
+- 🔲 Sistema de remix.
+- 🔲 Likes, comentarios.
+- 🔲 Asset pack store con revenue share.
+
+## 🔲 Modelo de negocio
+
+- 🔲 Tiers de pricing (Free / Hobby / Pro).
+- 🔲 BYOK alternativo.
+- 🔲 Educational tier.
+- 🔲 Stripe integration.
+
+## 🔲 Internacionalización profunda
+
+- 🔲 Idiomas adicionales (pt, fr, etc.).
+- 🔲 Localizaciones culturales.
+
+## 🔲 Engine improvements
+
+- 🔲 **Dirty rebuild de paredes** (solo cells afectadas).
+- 🔲 **Parent/child stacks de meshes** (reducir draw calls).
+- 🔲 **Pathfinding cacheado**.
+- 🔲 **Grids no cuadrados** (formas en L, T).
+- 🔲 **Múltiples pisos verticales**.
+- 🔲 **Render quality switcher** (toon flat / stylized / cinematic).
+
+## 🔲 Editor improvements
+
+- 🔲 **Transiciones entre planos** (fade, dissolve, wipe).
+- 🔲 **Audio tracks** en cutscenes.
+- 🔲 **Copy/paste con multi-sel** (Cmd+C/V).
+- 🔲 **Markers/notas** en timeline.
+- 🔲 **Round-trip DSL ↔ editor**.
+
+---
+
+# ✅ Hecho (referencia histórica)
 
 Versiones del monolito que llegaron a producción mental:
 
@@ -225,7 +336,9 @@ Versiones del monolito que llegaron a producción mental:
 - ✅ v1.43: `escenaRootId` para identidad estable de escenas.
 - ✅ v1.44: Alt+drag duplica plano y kf individual.
 - ✅ v1.45: lasso (Shift+drag), group drag, group clone.
-- ✅ v1.45.1: fix lasso (todos los kfs), group drag con refs, shift+click toggle.
+- ✅ v1.45.1: fix lasso, group drag con refs, shift+click toggle.
+
+Ese fue el cierre del monolito antes de migración a Vite + TS.
 
 ---
 
@@ -234,12 +347,11 @@ Versiones del monolito que llegaron a producción mental:
 Cosas donde no hay decisión tomada y conviene resolverlas antes de codear:
 
 - Versión de Three.js al migrar (r128 actual o última estable).
-- Nombre del package del engine (cwe, coto-engine, otro).
-- Formato exacto del DSL (markdown narrativo vs YAML estructurado).
-- Estrategia de persistencia post-migración (mantener localStorage o agregar export/import a archivo).
+- Formato exacto del DSL: **markdown narrativo** (decidido el 2026-04-27).
+- Estrategia de export de mundos (JSON al filesystem cuando MVP esté listo).
 - Estructura final de assets (texturas, sonidos): ¿cómo se organizan, cómo se cargan?
-- ¿El render MP4 va antes o después del DSL? (Mi voto: DSL primero porque desbloquea autoría.)
+- Nombre del package npm si CWE eventualmente se publica como tal.
 
 ---
 
-Este archivo se actualiza con cada sesión. Antes de empezar a trabajar, léelo y verifica que la prioridad sigue siendo lo que está marcado 🔴.
+Este archivo se actualiza con cada sesión. Antes de empezar a trabajar, léelo y verifica que la prioridad sigue siendo lo que está marcado 🟠.

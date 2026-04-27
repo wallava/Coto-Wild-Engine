@@ -32,6 +32,8 @@ Más adelante: un **DSL compiler** que toma un script en formato narrativo (mark
 
 ## Modelo de datos
 
+> **Nota**: el schema canónico vive en `src/cutscene/schema.ts` (Zod). La descripción aquí es conceptual. Si hay diferencia entre lo que está acá y el schema en código, **el schema gana**. Los schemas Zod fueron cerrados en Fase 3 (ver `ROADMAP.md`).
+
 Toda cutscene es un objeto serializable:
 
 ```ts
@@ -153,6 +155,25 @@ Lo mismo para walls (snapshot del estado en t para A2).
 
 ---
 
+## Persistencia y validación (Fase 3 cerrada)
+
+Las cutscenes guardadas se cargan a través de `validateCutscene` que combina **Zod schema** + **migrations**. El flujo:
+
+1. Leer JSON de localStorage.
+2. Pasar por `validateCutscene` (en `src/cutscene/persistence.ts`).
+3. Si valida → cargar normal.
+4. Si falla → intentar `migrateCutscene` → re-validar.
+5. Si sigue fallando → guardar en `cwe_quarantine_*` para inspección, fallback a cutscene vacía con log estructurado.
+
+Los schemas y migrations viven en:
+
+- `src/cutscene/schema.ts` — Zod schemas (Scene, kfs con discriminated union, Cutscene).
+- `src/cutscene/migrations.ts` — `migrateCutscene(raw, version)` con casos de kfs viejos sin sceneId, escenaRootId default chain, defaults para campos faltantes.
+
+**Lección aprendida en Fase 3**: los schemas iniciales tenían gaps porque se escribieron mirando la doc, no la data real. Cuando se cableó al runtime aparecieron casos del modelo real (door props sin altura, agents con emoji-array, etc.). Para fases futuras: probar contra data real desde el primer round.
+
+---
+
 ## El editor (UI) — qué tiene
 
 Construido a lo largo de muchas versiones, ahora es comparable a un NLE comercial básico:
@@ -209,6 +230,7 @@ Construido a lo largo de muchas versiones, ahora es comparable a un NLE comercia
 ### Save / Load
 - Cutscenes guardadas en localStorage del browser.
 - Lista en panel lateral, con miniaturas de timeline.
+- **Validación con cuarentena** al cargar (Fase 3 cabling).
 
 ---
 
@@ -254,9 +276,11 @@ Eventos no heredan porque no tiene sentido "heredar un saludo" del plano anterio
 
 ---
 
-## DSL — el plan a futuro
+## DSL — la próxima fase
 
 El editor es poderoso pero **lento para iterar narrativas** desde cero. Para una escena nueva, escribir kf por kf es tedioso. Por eso la siguiente fase es un **DSL declarativo**.
+
+**Formato decidido**: markdown narrativo (no YAML). Razón: es lo que vos vas a escribir a mano (más legible) y lo que la IA va a generar mejor (entrenada con miles de scripts).
 
 ### Idea
 
@@ -284,7 +308,7 @@ Cámara: close_up cris
 Transición final: cut
 ```
 
-Un **compilador** lee este markdown, simula el mundo paso a paso para resolver referencias ("camina_a cris" → cell donde está cris en ese momento), y emite la cutscene serializada. El editor abre esa cutscene y la muestra como kfs concretos editables.
+Un **compilador** lee este markdown, simula el mundo paso a paso para resolver referencias ("camina_a cris" → cell donde está cris en ese momento), y emite la cutscene serializada (validada contra el schema Zod). El editor abre esa cutscene y la muestra como kfs concretos editables.
 
 ### Vocabulario mínimo del DSL
 
@@ -319,13 +343,24 @@ Idealmente, editar visualmente en el editor genera diffs que se reflejan en el D
 - DSL → cutscene model (compile, una vía).
 - Editar cutscene model en el editor → guarda el cutscene editado, marca el DSL como "desactualizado" o lo regenera con confirmación.
 
+### Estructura de archivos esperada
+
+```
+src/cutscene/
+├── compiler.ts       ← DSL → cutscene model (orquestador)
+├── parser.ts         ← markdown → AST
+├── shots.ts          ← shot types (puros, AST → CameraKf[])
+├── camera-moves.ts   ← dolly_in, pan, etc. (puros)
+├── actions.ts        ← agent actions (puros)
+└── schema-ast.ts     ← Zod schema del AST DSL
+```
+
 ---
 
-## Estado actual del editor (al congelar el monolito)
+## Estado actual del editor
 
-Versión: **v1.45.1-three** en el monolito.
+Pre-migración (en monolito v1.45.1-three): todo lo siguiente funciona y se preservó en migración:
 
-Funciona:
 - ✅ Modelo de datos completo (Scene, kfs con sceneId, escenaRootId, inheritState).
 - ✅ Drag no destructivo de planos con Esc cancel.
 - ✅ Tijera con preservación de movimiento.
@@ -341,14 +376,26 @@ Funciona:
 - ✅ FX con entidades y placement.
 - ✅ Agentes con tracks (move, speak, animation).
 - ✅ Speech bubbles unificados con audio TTS.
-- ✅ Save/load de cutscenes en localStorage.
+- ✅ Save/load de cutscenes en localStorage (con validation Zod desde Fase 3).
 - ✅ Preview con renderer clear a negro en gaps.
 
-Pendiente (en orden de prioridad):
+Post-migración (módulos puros extraídos):
+- ✅ `cutscene/model.ts` (tipos + iterator).
+- ✅ `cutscene/scenes.ts` (ensureSceneConsistency + computeSceneView).
+- ✅ `cutscene/inheritance.ts` (chain + lastKfWithInheritance + kfIsVisible) — con 16 tests críticos.
+- ✅ `cutscene/keyframes.ts` (shift/warp/reassign/filter/assign).
+- ✅ `cutscene/camera.ts` (interpCameraPose).
+- ✅ `cutscene/walls.ts` (computeWallStateAt).
+- ✅ `cutscene/schema.ts` + `cutscene/migrations.ts` (Fase 3).
+- ✅ `editor/multi-sel.ts` + `editor/toolbar.ts` + `editor/playback.ts` (Fase 2 diferidos).
+- ✅ `cutscene/runtime.ts` (POV early + FX eval extraídos en Fase 2 diferidos).
+
+Pendientes (en orden de prioridad):
 - 🔲 **DSL compiler** (alta prioridad — desbloquea autoría rápida).
-- 🔲 **Render MP4 vía WebCodecs** (cierre lógico del editor).
+- 🔲 **Editor lifecycle completo** (ceOpen/ceClose, runtime evaluation, persistence/undo, timeline rendering, gizmo wrapper, FX system, POV controls completos, toolbar UI completa, mouse handlers).
+- 🔲 **Render MP4 vía WebCodecs** (horizonte 2).
 - 🔲 **Transiciones entre planos** (modelo ya preparado: `scene.transitionIn = { type, duration }`).
-- 🔲 **Audio tracks** (música + SFX sincronizados).
+- 🔲 **Audio tracks** (música + SFX sincronizados, horizonte 2).
 - 🔲 **Copy/paste con multi-sel** (Cmd+C/V).
 - 🔲 **Markers/notas** en el timeline.
 - 🔲 **Round-trip DSL ↔ editor**.
@@ -361,7 +408,7 @@ Si vas a tocar algo del editor:
 
 1. **Lee el código del monolito** primero (`docs/reference/three-preview-monolith.html`). Busca la función relevante con grep.
 2. **Antes de cambiar el modelo**, entiende las 6 decisiones de arriba. Romper una = romper todo.
-3. **Valida con Pablo** cualquier cambio que afecte la persistencia (cutscenes guardadas viejas tienen que seguir cargando).
+3. **Si vas a tocar persistencia**: respeta los schemas Zod en `src/cutscene/schema.ts`. Cualquier campo nuevo requiere migración.
 4. **El DSL es la siguiente prioridad**. Casi todo lo nuevo del editor debería pensarse en términos de "cómo se expresa en DSL".
 
 Esto es la pieza más madura y compleja del proyecto. Cuídala.
