@@ -101,7 +101,6 @@ import {
 import {
   clearWallPreviews,
   clearWallHover,
-  showWallPreview as engineShowWallPreview,
   showWallHover,
 } from './engine/wall-preview-render';
 import {
@@ -275,6 +274,22 @@ import {
   spawnWallPropFromTemplate,
   isPlaceModeActive,
 } from './engine/place-mode';
+import {
+  initWallBuild,
+  beginWallDrag,
+  updateWallDrag,
+  computeWallPath as computeWallPathImpl,
+  showWallBuildPreview,
+  applyWallPath as applyWallPathImpl,
+  cancelWallDrag as cancelWallDragImpl,
+  endWallDrag,
+  isWallBuildDragging,
+  getWallDragStart,
+  getWallDragLast,
+  getWallDragOffAxis,
+  getBuildWallStyle,
+  setBuildWallStyle,
+} from './engine/wall-build';
 import {
   getMinCellsForZones,
   setMinCellsForZones,
@@ -669,12 +684,7 @@ import { formatRelTime } from './utils/format';
   }
 
   // ── Wall Tool (Build mode estilo Sims) ──
-  // Drag sobre el piso construye o elimina una línea continua de paredes.
-  // La línea es siempre recta horizontal o vertical (la que predomine).
-  // Mientras dragueás se muestra una preview; al soltar se aplica.
-  // Si la primera pared del path ya existe → modo erase. Si no → modo build.
-  let isWallDragging = false;
-  let buildWallStyle = 'solid';   // 'solid' | 'window' — qué tipo de pared construir
+  // State + lógica viven en src/engine/wall-build.ts. Hooks de init más abajo.
 
   // ── Pintura ──
   // paintColor: número (0xRRGGBB) o null. null = "limpiar" (volver al default).
@@ -882,10 +892,7 @@ import { formatRelTime } from './utils/format';
       floodFillRoomWalls(start.cx, start.cy);
     }
   }
-  let wallDragStart = null;   // {x, z} en world abs (sin centrar)
-  let wallDragLast = null;
-  let wallDragAxis = null;    // 'h' (horizontal/wallN) | 'v' (vertical/wallW) | null hasta primer movimiento
-  let wallDragOffAxis = false; // cursor se desvió del eje fijado → mostrar rojo, no construir
+  // Wall drag state ahora en src/engine/wall-build.ts.
   // wallPreviewMeshes + wallHoverMesh ahora en src/engine/wall-preview-render.ts.
 
   // getWorldPointFromEvent ahora en src/engine/raycaster.ts.
@@ -894,173 +901,29 @@ import { formatRelTime } from './utils/format';
 
   // findNearestPlaceableWallFace + findNearestWallSegment ahora en src/engine/wall-queries.ts.
 
-  // Calcula el path actual de paredes según start, end y axis fijado.
-  // Si wallDragAxis === null y el delta total es muy chico, devuelve solo
-  // la arista más cercana al start (single wall preview).
-  // Si axis está fijado, mantiene esa dirección y setea wallDragOffAxis
-  // si el cursor se desvía más por el eje contrario.
-  function computeWallPath(start, end) {
-    if (!start || !end) return [];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const absDx = Math.abs(dx);
-    const absDz = Math.abs(dz);
-    // Si todavía no hay axis fijado y el delta es chico, devolver single edge
-    if (!wallDragAxis && absDx < CELL * 0.3 && absDz < CELL * 0.3) {
-      const e = getNearestEdgeFromPoint(start);
-      wallDragOffAxis = false;
-      return e ? [e] : [];
-    }
-
-    // Determinar / usar el axis fijado
-    let axis = wallDragAxis;
-    if (!axis) {
-      axis = (absDx >= absDz) ? 'h' : 'v';
-    }
-
-    // Detectar off-axis: si cursor se desvió MÁS por el eje contrario
-    if (axis === 'h') {
-      wallDragOffAxis = absDz > absDx;
-    } else {
-      wallDragOffAxis = absDx > absDz;
-    }
-
-    if (axis === 'h') {
-      // Línea de wallN. cy fijo: el más cercano a la coordenada z del START.
-      const cy = Math.max(0, Math.min(GRID_H, Math.round(start.z / CELL)));
-      const cxs = Math.floor(start.x / CELL);
-      const cxe = Math.floor(end.x / CELL);
-      const cxMin = Math.max(0, Math.min(cxs, cxe));
-      const cxMax = Math.min(GRID_W - 1, Math.max(cxs, cxe));
-      const result = [];
-      for (let cx = cxMin; cx <= cxMax; cx++) result.push({ type: 'wallN', cx, cy });
-      return result;
-    } else {
-      // Línea de wallW. cx fijo: el más cercano a x del START.
-      const cx = Math.max(0, Math.min(GRID_W, Math.round(start.x / CELL)));
-      const czs = Math.floor(start.z / CELL);
-      const cze = Math.floor(end.z / CELL);
-      const cyMin = Math.max(0, Math.min(czs, cze));
-      const cyMax = Math.min(GRID_H - 1, Math.max(czs, cze));
-      const result = [];
-      for (let cy = cyMin; cy <= cyMax; cy++) result.push({ type: 'wallW', cx, cy });
-      return result;
-    }
-  }
-
-  // Setea el axis fijado si todavía no lo está y el delta cruza un threshold.
-  function tryLockAxis(start, end) {
-    if (wallDragAxis) return;
-    if (!start || !end) return;
-    const dx = Math.abs(end.x - start.x);
-    const dz = Math.abs(end.z - start.z);
-    const THRESHOLD = CELL * 0.5;
-    if (dx > THRESHOLD || dz > THRESHOLD) {
-      wallDragAxis = (dx >= dz) ? 'h' : 'v';
-    }
-  }
-
-  // makeWallPreviewBox + clearWallPreviews + clearWallHover + showWallHover
-  // ahora en src/engine/wall-preview-render.ts. Wrapper local de showWallPreview
-  // pasa buildWallStyle (que sigue en legacy).
-  function showWallPreview(path, isErase, isInvalid) {
-    engineShowWallPreview(path, isErase, isInvalid, buildWallStyle);
-  }
-
+  // computeWallPath + tryLockAxis + applyWallPath + cancelWallDrag ahora en
+  // src/engine/wall-build.ts. Wrappers thin para callsites locales:
+  const computeWallPath = computeWallPathImpl;
+  const showWallPreview = showWallBuildPreview;
   function applyWallPath(path) {
-    if (!path.length) return;
-    const isErase = (buildWallStyle === 'erase');
-    let changed = 0;
-    let removedWallProps = 0;
-    let converted = 0;
-    for (const w of path) {
-      const exists = w.type === 'wallN' ? worldGrid.wallN[w.cy][w.cx] : worldGrid.wallW[w.cy][w.cx];
-      if (isErase) {
-        if (exists) {
-          if (w.type === 'wallN') worldGrid.wallN[w.cy][w.cx] = false;
-          else worldGrid.wallW[w.cy][w.cx] = false;
-          // Eliminar wall props anclados a esta pared (cualquier cara)
-          const validSides = w.type === 'wallN' ? ['N', 'S'] : ['W', 'E'];
-          for (let i = props.length - 1; i >= 0; i--) {
-            const p = props[i];
-            if ((p.category || 'floor') !== 'wall') continue;
-            if (p.cx !== w.cx || p.cy !== w.cy) continue;
-            if (!validSides.includes(p.side)) continue;
-            if (selectedProp === p) selectProp(null);
-            removePropAt(i);
-            removedWallProps++;
-          }
-          eventBus.emit('wallChanged', {
-            type: w.type, cx: w.cx, cy: w.cy, exists: false, style: null,
-          });
-          changed++;
-        }
-      } else if (!exists) {
-        // Construir nueva pared con el style actual
-        let blocked = false;
-        if (w.type === 'wallN') {
-          for (const p of props) {
-            if ((p.category || 'floor') === 'wall') continue;
-            if (p.d === 2 && p.cx === w.cx && p.cy === w.cy - 1) { blocked = true; break; }
-          }
-          if (!blocked) {
-            worldGrid.wallN[w.cy][w.cx] = true;
-            worldGrid.wallNStyle[w.cy][w.cx] = buildWallStyle;
-            eventBus.emit('wallChanged', {
-              type: 'wallN', cx: w.cx, cy: w.cy, exists: true, style: buildWallStyle,
-            });
-            changed++;
-          }
-        } else {
-          for (const p of props) {
-            if ((p.category || 'floor') === 'wall') continue;
-            if (p.w === 2 && p.cy === w.cy && p.cx === w.cx - 1) { blocked = true; break; }
-          }
-          if (!blocked) {
-            worldGrid.wallW[w.cy][w.cx] = true;
-            worldGrid.wallWStyle[w.cy][w.cx] = buildWallStyle;
-            eventBus.emit('wallChanged', {
-              type: 'wallW', cx: w.cx, cy: w.cy, exists: true, style: buildWallStyle,
-            });
-            changed++;
-          }
-        }
-      } else {
-        // Existe: convertir style si es distinto al actual
-        const currentStyle = w.type === 'wallN'
-          ? worldGrid.wallNStyle[w.cy][w.cx]
-          : worldGrid.wallWStyle[w.cy][w.cx];
-        if (currentStyle !== buildWallStyle) {
-          if (w.type === 'wallN') worldGrid.wallNStyle[w.cy][w.cx] = buildWallStyle;
-          else worldGrid.wallWStyle[w.cy][w.cx] = buildWallStyle;
-          eventBus.emit('wallChanged', {
-            type: w.type, cx: w.cx, cy: w.cy, exists: true, style: buildWallStyle,
-          });
-          changed++;
-          converted++;
-        }
-      }
-    }
-    if (changed > 0) {
+    applyWallPathImpl(path, (removedProp) => {
+      if (selectedProp === removedProp) selectProp(null);
+    });
+  }
+  const cancelWallDrag = cancelWallDragImpl;
+
+  // Init del wall-build: hook onApplied resetea agent paths + cam quadrant
+  // + rebuild + reselect (deps a buildScene/selectedProp/agents que viven en legacy).
+  initWallBuild({
+    onApplied: ({ changed, isErase, converted }) => {
       for (const a of agents) { a.path = []; a.target = null; }
       lastCamQuadrant = '';
       buildScene();
       if (selectedProp) selectProp(selectedProp);
-      markWorldChanged();
-    }
-    const action = isErase ? 'erase' : (converted > 0 ? 'convert' : 'build');
-    console.log('[walls]', action, '— affected:', changed,
-                removedWallProps > 0 ? `(+ ${removedWallProps} wall props caídos)` : '');
-  }
-
-  function cancelWallDrag() {
-    isWallDragging = false;
-    wallDragStart = null;
-    wallDragLast = null;
-    wallDragAxis = null;
-    wallDragOffAxis = false;
-    clearWallPreviews();
-  }
+      const action = isErase ? 'erase' : (converted > 0 ? 'convert' : 'build');
+      console.log('[walls]', action, '— affected:', changed);
+    },
+  });
 
   // Rotar mueble 90° (swap w↔d). Reglas:
   // 1. Si está siendo draggeado, la celda base es la del ghost (cursor),
@@ -2434,15 +2297,10 @@ import { formatRelTime } from './utils/format';
       } else if (mode === 'build') {
         const wp = getWorldPointFromEvent(e);
         if (wp) {
-          isWallDragging = true;
-          wallDragStart = wp;
-          wallDragLast = wp;
-          wallDragAxis = null;
-          wallDragOffAxis = false;
+          beginWallDrag(wp);
           clearWallHover();
-          // Preview inicial: 1 sola pared (la más cercana)
           const path = computeWallPath(wp, wp);
-          showWallPreview(path, buildWallStyle === 'erase', false);
+          showWallPreview(path, false);
         }
       } else if (mode === 'paint') {
         // Preview se borra; pintar de verdad
@@ -2615,15 +2473,14 @@ import { formatRelTime } from './utils/format';
         const cell = getCellFromEvent(e);
         if (cell) updateDragGhost(cell.cx, cell.cy);
       }
-    } else if (leftDown && isWallDragging) {
+    } else if (leftDown && isWallBuildDragging()) {
       const wp = getWorldPointFromEvent(e);
       if (wp) {
-        wallDragLast = wp;
-        tryLockAxis(wallDragStart, wallDragLast);
-        const path = computeWallPath(wallDragStart, wallDragLast);
-        const isErase = (buildWallStyle === 'erase');
+        updateWallDrag(wp);
+        const path = computeWallPath(getWallDragStart(), getWallDragLast());
+        const isErase = (getBuildWallStyle() === 'erase');
         const blockedFurn = pathBlocksOnFurniture(path, isErase);
-        showWallPreview(path, isErase, wallDragOffAxis || blockedFurn);
+        showWallPreview(path, getWallDragOffAxis() || blockedFurn);
       }
     } else if (leftDown && paintDragging) {
       paintAtEvent(e);
@@ -2700,22 +2557,17 @@ import { formatRelTime } from './utils/format';
         }
         endDrag(target);
         isPropDrag = false;
-      } else if (isWallDragging) {
-        const path = computeWallPath(wallDragStart, wallDragLast);
-        const isErase = (buildWallStyle === 'erase');
+      } else if (isWallBuildDragging()) {
+        const path = computeWallPath(getWallDragStart(), getWallDragLast());
+        const isErase = (getBuildWallStyle() === 'erase');
         const blockedFurn = pathBlocksOnFurniture(path, isErase);
-        if (!wallDragOffAxis && !blockedFurn) {
+        if (!getWallDragOffAxis() && !blockedFurn) {
           applyWallPath(path);
         } else {
-          const reason = wallDragOffAxis ? 'fuera de eje' : 'bloqueado por mueble';
+          const reason = getWallDragOffAxis() ? 'fuera de eje' : 'bloqueado por mueble';
           console.log('[walls] cancelado:', reason);
         }
-        isWallDragging = false;
-        wallDragStart = null;
-        wallDragLast = null;
-        wallDragAxis = null;
-        wallDragOffAxis = false;
-        clearWallPreviews();
+        endWallDrag();
       } else if (!didMove && performance.now() - downTime < 300) {
         if (mode === 'edit') {
           const prop = getPropFromEvent(e);
@@ -2801,7 +2653,7 @@ import { formatRelTime } from './utils/format';
         return;
       }
       selectProp(null);
-      if (isWallDragging) cancelWallDrag();
+      if (isWallBuildDragging()) cancelWallDrag();
     }
   });
 
@@ -2922,10 +2774,11 @@ import { formatRelTime } from './utils/format';
       'window-half': 'Tipo: Ventanita',
       'erase':       'Tipo: Borrar',
     };
-    const idx = order.indexOf(buildWallStyle);
-    buildWallStyle = order[(idx + 1) % order.length];
-    e.target.textContent = labels[buildWallStyle];
-    e.target.classList.toggle('active', buildWallStyle !== 'solid');
+    const idx = order.indexOf(getBuildWallStyle());
+    const next = order[(idx + 1) % order.length];
+    setBuildWallStyle(next);
+    e.target.textContent = labels[next];
+    e.target.classList.toggle('active', next !== 'solid');
   });
 
   // Paint UI ahora vive en src/ui/paint-panel.ts. Acá queda el wrapper que
