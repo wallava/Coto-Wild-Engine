@@ -20,7 +20,6 @@ import { eventBus } from './engine/event-bus';
 import {
   worldGrid,
   props,
-  pushProp,
   removePropAt,
   removePropRef,
   defaultWorld,
@@ -76,7 +75,6 @@ import {
   blocksWallW,
   isCorner,
   isAllWindowCorner,
-  getCandidateWallSlots,
   getAdjacentCell,
   getWallPropBounds,
   getNearestEdgeFromPoint,
@@ -149,11 +147,6 @@ import {
   updateSpeechBubbles,
   updateDialoguePanel,
 } from './engine/speech';
-import {
-  PROP_TEMPLATES,
-  WALL_PROP_TEMPLATES,
-  DOOR_PROP_TEMPLATES,
-} from './game/prop-catalog';
 import { migrateLoadedProps } from './game/migrations';
 import {
   AGENT_KITS,
@@ -212,7 +205,13 @@ import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
 import { showZoneEditBanner, hideZoneEditBanner } from './ui/zone-edit-banner';
 import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
 import { buildFloor } from './engine/floor-render';
-import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
+import { neighbors, findPath } from './engine/pathfinding';
+import {
+  initSpawners,
+  spawnRandomProp as spawnRandomPropImpl,
+  removeLastProp as removeLastPropImpl,
+  trySpawnAgent as trySpawnAgentImpl,
+} from './game/spawners';
 import {
   isAgentAt,
   setAgentsGetter as setAgentsStateGetter,
@@ -302,6 +301,20 @@ import {
   setWallHGetter,
   setCameraThetaGetter,
 } from './engine/wall-mode';
+import {
+  initCameraIso,
+  getTheta,
+  getPhi,
+  getCamZoom,
+  getPanX,
+  getPanZ,
+  setTheta,
+  setPhi,
+  setCamZoom,
+  setPanX,
+  setPanZ,
+  updateCamera as updateCameraImpl,
+} from './engine/camera-iso';
 import {
   setFloorTileColor,
   setWallFaceColor,
@@ -506,7 +519,6 @@ import { formatRelTime } from './utils/format';
     if (typeof selectProp === 'function') selectProp(null);
     if (isPropDragging()) endPropDrag(null);
     for (const a of agents) { a.path = []; a.target = null; }
-    lastCamQuadrant = '';
     if (typeof buildScene === 'function') buildScene();
     console.log('[reset] world restored to default');
   }
@@ -530,73 +542,11 @@ import { formatRelTime } from './utils/format';
   // isAgentAt ahora en src/engine/agents-state.ts.
 
   function spawnRandomProp() {
-    // 25% de probabilidad: intentar wall prop (cuadro). Si no hay paredes
-    // disponibles, cae al spawn floor/rug normal.
-    if (Math.random() < 0.25 && WALL_PROP_TEMPLATES.length > 0) {
-      const candidates = getCandidateWallSlots();
-      const free = candidates.filter(c => {
-        for (const p of props) {
-          if ((p.category || 'floor') !== 'wall') continue;
-          if (p.side === c.side && p.cx === c.cx && p.cy === c.cy) return false;
-        }
-        return true;
-      });
-      if (free.length > 0) {
-        const slot = free[Math.floor(Math.random() * free.length)];
-        const tmpl = WALL_PROP_TEMPLATES[Math.floor(Math.random() * WALL_PROP_TEMPLATES.length)];
-        pushProp({ category: 'wall', side: slot.side, cx: slot.cx, cy: slot.cy, ...tmpl });
-        buildScene();
-        markWorldChanged();
-        return true;
-      }
-    }
-    // Spawn floor / rug / stack
-    let attempts = 0;
-    while (attempts++ < 50) {
-      const tmpl = PROP_TEMPLATES[Math.floor(Math.random() * PROP_TEMPLATES.length)];
-      const cx = Math.floor(Math.random() * (GRID_W - tmpl.w + 1));
-      const cy = Math.floor(Math.random() * (GRID_H - tmpl.d + 1));
-      const cat = tmpl.category || 'floor';
-      // Stack: requiere floor stackable abajo, sino sería huérfano
-      if (cat === 'stack' && !getFloorStackBase(cx, cy)) continue;
-      // Solapamiento contra props de la MISMA categoría
-      let overlap = false;
-      for (const p of props) {
-        if ((p.category || 'floor') !== cat) continue;
-        if (cx < p.cx + p.w && cx + tmpl.w > p.cx &&
-            cy < p.cy + p.d && cy + tmpl.d > p.cy) { overlap = true; break; }
-      }
-      if (overlap) continue;
-      // Solo floor: no pisar agentes
-      if (cat === 'floor') {
-        let blocked = false;
-        for (let dy = 0; dy < tmpl.d && !blocked; dy++) {
-          for (let dx = 0; dx < tmpl.w && !blocked; dx++) {
-            if (isAgentAt(cx + dx, cy + dy)) blocked = true;
-          }
-        }
-        if (blocked) continue;
-      }
-      // Multi-cell no atraviesa paredes interiores
-      if (tmpl.w === 2 && hasWallW(cx + 1, cy)) continue;
-      if (tmpl.d === 2 && hasWallN(cx, cy + 1)) continue;
-      pushProp({ cx, cy, ...tmpl });
-      for (const a of agents) { a.path = []; a.target = null; }
-      buildScene();
-      markWorldChanged();
-      return true;
-    }
-    return false;
+    return spawnRandomPropImpl();
   }
 
   function removeLastProp() {
-    if (props.length === 0) return;
-    const removed = props.pop();
-    eventBus.emit('propDeleted', { prop: removed });
-    if (selectedProp === removed) selectProp(null);
-    for (const a of agents) { a.path = []; a.target = null; }
-    buildScene();
-    markWorldChanged();
+    removeLastPropImpl();
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -917,7 +867,6 @@ import { formatRelTime } from './utils/format';
   initWallBuild({
     onApplied: ({ changed, isErase, converted }) => {
       for (const a of agents) { a.path = []; a.target = null; }
-      lastCamQuadrant = '';
       buildScene();
       if (selectedProp) selectProp(selectedProp);
       const action = isErase ? 'erase' : (converted > 0 ? 'convert' : 'build');
@@ -1051,16 +1000,7 @@ import { formatRelTime } from './utils/format';
   // getPropFromEvent ahora en src/engine/raycaster.ts.
 
   function trySpawnAgent() {
-    let attempts = 0;
-    while (attempts++ < 30) {
-      const cx = Math.floor(Math.random() * GRID_W);
-      const cy = Math.floor(Math.random() * GRID_H);
-      if (isAgentAt(cx, cy)) continue;
-      if (isBlockedByProp(cx, cy)) continue;
-      spawnAgent(cx, cy);
-      return true;
-    }
-    return false;
+    return trySpawnAgentImpl();
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1090,6 +1030,20 @@ import { formatRelTime } from './utils/format';
   }
   const setAgentFacing = setAgentFacingImpl;
   const syncAgentMesh = syncAgentMeshImpl;
+
+  initSpawners({
+    getAgents: () => agents,
+    getSelectedProp: () => selectedProp,
+    setSelectedProp: (prop) => selectProp(prop),
+    spawnAgent,
+    onAfterMutation: () => {
+      buildScene();
+      selectProp(null);
+    },
+    onPropDeleted: (removed) => {
+      if (selectedProp === removed) selectProp(null);
+    },
+  });
 
   // ── Selección de agente ──
   // Toda la lógica vive en src/engine/agent-selection.ts.
@@ -1824,8 +1778,9 @@ import { formatRelTime } from './utils/format';
     // ── Walls N ──
     // Cutaway dinámico: se reduce a zócalo la pared "del frente" según
     // dónde esté la cámara en el plano horizontal (theta).
-    const camAtSouth = Math.cos(theta) > 0;   // cámara en mitad sur del mundo
-    const camAtEast  = Math.sin(theta) > 0;   // cámara en mitad este
+    const cameraTheta = getTheta();
+    const camAtSouth = Math.cos(cameraTheta) > 0;   // cámara en mitad sur del mundo
+    const camAtEast  = Math.sin(cameraTheta) > 0;   // cámara en mitad este
 
     function wNH(cy) {
       if (wallMode !== 'cutaway') return WALL_H;
@@ -2080,33 +2035,13 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
   //  CAMERA — iso ortográfica con rotación manual
   // ══════════════════════════════════════════════════════════════
-  let theta = Math.PI / 4;                       // azimuth (alrededor de Y)
-  setCameraThetaGetter(() => theta);   // engine/wall-mode lee theta para cutaway
-  let phi = Math.atan(1 / Math.sqrt(2));         // elevación, ~35.264° = iso real
-  const dist = 1500;
-  let camZoom = 1;
-  // Pan offset (desplaza el target de la cámara — Shift + drag derecho)
-  let panX = 0, panZ = 0;
-
-  let lastCamQuadrant = '';
-
-  function updateCamera() {
-    camera.up.set(0, 1, 0);   // reset roll inducido por POV cinemático
-    camera.position.x = panX + dist * Math.cos(phi) * Math.sin(theta);
-    camera.position.y = dist * Math.sin(phi);
-    camera.position.z = panZ + dist * Math.cos(phi) * Math.cos(theta);
-    camera.lookAt(panX, 0, panZ);
-    camera.zoom = camZoom;
-    camera.updateProjectionMatrix();
-    // Rebuild la escena solo si cruzamos cuadrante en modo cutaway
-    const q = (Math.sin(theta) > 0 ? 'E' : 'W') + (Math.cos(theta) > 0 ? 'S' : 'N');
-    if (wallMode === 'cutaway' && q !== lastCamQuadrant) {
-      lastCamQuadrant = q;
-      buildScene();
-    } else {
-      lastCamQuadrant = q;
-    }
-  }
+  initCameraIso({
+    getCamera: () => camera,
+    getWallMode: () => wallMode,
+    onQuadrantChanged: () => buildScene(),
+  });
+  setCameraThetaGetter(getTheta);   // engine/wall-mode lee theta para cutaway
+  const updateCamera = updateCameraImpl;   // wrapper local: preserva callsites legacy/cutscene
 
   // ── Mouse ─────────────────────────────────────────────────────────────
   // CLICK IZQUIERDO (solo con Editor ON):
@@ -2374,7 +2309,7 @@ import { formatRelTime } from './utils/format';
         // Vertical: solo cámara sube/baja. Target queda fijo (efecto tilt natural).
         // Cuando subís la cámara con target abajo, automáticamente "mira hacia abajo".
         const dy = -(e.clientY - drag.startMouseY);   // arriba = subir
-        const scale = 1.5 / (camZoom || 1);
+        const scale = 1.5 / (getCamZoom() || 1);
         cam.gizmoPosition = {
           x: drag.startPos.x,
           y: Math.max(10, drag.startPos.y + dy * scale),
@@ -2436,13 +2371,13 @@ import { formatRelTime } from './utils/format';
       if (typeof isCameraLocked === 'function' && isCameraLocked()) return;
       if (e.shiftKey) {
         // PAN: trasladar el target de la cámara en el plano horizontal
-        const panSpeed = 1.6 / camZoom;
-        panX -= (Math.cos(theta) * dx + Math.sin(theta) * dy) * panSpeed;
-        panZ -= (-Math.sin(theta) * dx + Math.cos(theta) * dy) * panSpeed;
+        const panSpeed = 1.6 / getCamZoom();
+        const cameraTheta = getTheta();
+        setPanX(getPanX() - (Math.cos(cameraTheta) * dx + Math.sin(cameraTheta) * dy) * panSpeed);
+        setPanZ(getPanZ() - (-Math.sin(cameraTheta) * dx + Math.cos(cameraTheta) * dy) * panSpeed);
       } else {
-        theta -= dx * 0.008;
-        phi += dy * 0.008;
-        phi = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, phi));
+        setTheta(getTheta() - dx * 0.008);
+        setPhi(getPhi() + dy * 0.008);
       }
       updateCamera();
     } else if (leftDown && isAgentDragging()) {
@@ -2597,8 +2532,7 @@ import { formatRelTime } from './utils/format';
     e.preventDefault();
     if (typeof isCameraLocked === 'function' && isCameraLocked()) return;
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    camZoom *= delta;
-    camZoom = Math.max(0.3, Math.min(4, camZoom));
+    setCamZoom(Math.max(0.3, Math.min(4, getCamZoom() * delta)));
     updateCamera();
   }, { passive: false });
 
@@ -2617,11 +2551,11 @@ import { formatRelTime } from './utils/format';
     }
     if (e.key === ',' || e.key === '<') {
       if (typeof isCameraLocked === 'function' && isCameraLocked()) return;
-      if (!e.repeat) { theta -= ROT_STEP; updateCamera(); }
+      if (!e.repeat) { setTheta(getTheta() - ROT_STEP); updateCamera(); }
       keyLeft = true;
     } else if (e.key === '.' || e.key === '>') {
       if (typeof isCameraLocked === 'function' && isCameraLocked()) return;
-      if (!e.repeat) { theta += ROT_STEP; updateCamera(); }
+      if (!e.repeat) { setTheta(getTheta() + ROT_STEP); updateCamera(); }
       keyRight = true;
     } else if (e.key === 'r' || e.key === 'R') {
       // placeMode tiene prioridad: rotar el template del catálogo
@@ -2749,7 +2683,6 @@ import { formatRelTime } from './utils/format';
       wallMode = 'up'; WALL_H = WALL_H_UP;
       e.target.textContent = 'Walls: Up';
     }
-    lastCamQuadrant = '';   // forzar re-cálculo de cuadrante
     buildScene();
   });
   document.getElementById('btn-roof').addEventListener('click', () => {
@@ -2757,9 +2690,9 @@ import { formatRelTime } from './utils/format';
   });
 
   document.getElementById('btn-reset').addEventListener('click', () => {
-    theta = Math.PI / 4;
-    phi = Math.atan(1 / Math.sqrt(2));
-    camZoom = 1;
+    setTheta(Math.PI / 4);
+    setPhi(Math.atan(1 / Math.sqrt(2)));
+    setCamZoom(1);
     updateCamera();
   });
 
@@ -7270,8 +7203,8 @@ import { formatRelTime } from './utils/format';
     lastTime = now;
     // Rotación continua si las teclas , o . están sostenidas
     if ((keyLeft || keyRight) && !(typeof isCameraLocked === 'function' && isCameraLocked())) {
-      if (keyLeft)  theta -= ROT_SPEED * dt;
-      if (keyRight) theta += ROT_SPEED * dt;
+      if (keyLeft)  setTheta(getTheta() - ROT_SPEED * dt);
+      if (keyRight) setTheta(getTheta() + ROT_SPEED * dt);
       updateCamera();
     }
     if (!paused) {
