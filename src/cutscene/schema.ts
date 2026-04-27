@@ -150,7 +150,8 @@ export const AgentTrackSchema = z
 export const CutsceneAgentSchema = z
   .object({
     id: z.string().min(1, 'CutsceneAgent.id requerido'),
-    emoji: z.string().optional(),
+    // emoji puede ser string o array de strings (multi-glyph) — paridad world AgentSchema.
+    emoji: z.union([z.string(), z.array(z.string())]).optional(),
     voiceIdx: z.number().optional(),
   })
   .passthrough();

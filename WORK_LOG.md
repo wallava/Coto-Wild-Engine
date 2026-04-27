@@ -66,6 +66,39 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 15:05 - [FASE 3.5 INTERACTIVA] Cablear validate+migrate en callers (cierre Fase 3)
+
+**Plan inicial**: cablear validateCutscene en getSavedCutscene + validateWorld en loadFromStorage. Migration fallback en ambos.
+
+**Tasks**:
+
+### CLAUDE: cablear cutscene/persistence.ts:getSavedCutscene
+- Pipeline: raw → validateCutscene → si falla → loadAndMigrateCutscene (clone+migrate+revalidate) → si pasa: persistir migrada en LS + return; si falla: log estructurado + return null.
+- Import directo de loadAndMigrateCutscene (sin ciclo problemático).
+
+### CLAUDE: cablear engine/persistence.ts:loadFromStorage
+- Refactor: `tryLoadSlot(rawString, source)` helper compartido para SLOT_CURRENT_KEY, STORAGE_KEY_V2, STORAGE_KEY_V1.
+- Pipeline: parse → validateWorld → si falla → loadAndMigrateWorld → si pasa: applyWorldFromData + saveToStorage para persistir migrada → si falla: cuarentena raw en `cwe_quarantine_<source>_<timestamp>` antes de return false (preserva data del usuario porque el caller legacy aplica defaultWorld + saveToStorage en path de falla, pisando cwe_current).
+
+**Bugs encontrados con data real de Pablo (2 fixes)**:
+1. PropSchema: `h, top, right, left` requeridos. Door props (game/migrations.ts:95) no los tienen — solo `{id, category, cx, cy, side, kind}`. Fix: hacer optional. Ajuste al modelo real, no inventar campos.
+2. AgentSchema y CutsceneAgentSchema: `emoji: z.string().optional()`. Pero data real tiene `emoji: array<string>` (multi-glyph composition). Fix: `z.union([z.string(), z.array(z.string())]).optional()`.
+
+**Mejoras de log durante debug**:
+- `validateWorld` y `tryLoadSlot` errors: serializar issues a single-line string en vez de Object colapsado (más fácil de leer en console).
+
+**Validación con data real de Pablo**:
+- Primera carga: error `props.7.h` y `props.8.h` Required → fix PropSchema h optional.
+- Segunda carga: error `agents.0/1/2.emoji` array vs string → fix AgentSchema emoji union.
+- Tercera carga: ✅ load limpio confirmado por Pablo ("ok").
+
+**Pérdida de data lateral (sesión 1)**: el cabling original NO tenía cuarentena en path de falla. Tu cwe_current original con door props legacy fue pisado por defaultWorld del caller legacy → door props originales perdidos en ese reload. Cuarentena agregada en sesión 2 para evitar futuras pérdidas.
+
+**Validación**: tsc ✅, smoke-test ✅, npm test 100/100 ✅, juego anda con data real ✅.
+**Status**: ✅ Done. Fase 3 oficialmente cerrada.
+
+---
+
 ## 2026-04-27 14:40 - [FASE 3 INTERACTIVA] R4 migrations cutscene + world (paralelo)
 
 **Plan inicial**: Claude src/cutscene/migrations.ts + tests; Codex en background src/engine/migrations.ts + tests.

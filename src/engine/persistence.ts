@@ -18,6 +18,7 @@ import { uid } from '../utils/id';
 import { eventBus } from './event-bus';
 import { worldGrid, props } from './world';
 import { WorldSchema, type World as WorldValidated } from './schema';
+import { loadAndMigrateWorld } from './migrations';
 
 // agents son globales en legacy hasta que se extraiga el chassis. Acá
 // recibimos via getter callback para que serializeWorld pueda incluirlos.
@@ -95,13 +96,10 @@ export type WorldValidationResult =
 export function validateWorld(raw: unknown): WorldValidationResult {
   const parsed = WorldSchema.safeParse(raw);
   if (!parsed.success) {
-    console.warn('[world/validate] schema mismatch', {
-      issues: parsed.error.issues.map((i) => ({
-        path: i.path.join('.'),
-        code: i.code,
-        message: i.message,
-      })),
-    });
+    const summary = parsed.error.issues
+      .map((i) => `${i.path.join('.')} :: ${i.code} :: ${i.message}`)
+      .join(' || ');
+    console.warn(`[world/validate] schema mismatch: ${summary}`);
     return { ok: false, error: parsed.error };
   }
   const w = parsed.data;
@@ -258,50 +256,89 @@ export function setApplyWorldFromDataCallback(
 // Intenta cargar el mundo: primero cwe_current, después migrar v2 → current,
 // después v1 → current con migración de side. Devuelve true si encontró
 // algo. false → caller debe usar defaultWorld.
+//
+// Pipeline por slot:
+//   1. JSON.parse del raw.
+//   2. validateWorld estricto (schema + dim check).
+//      - Si pasa: applyWorldFromData.
+//      - Si falla: loadAndMigrateWorld (clone + migrate + re-validate).
+//          - Si pasa: applyWorldFromData con la versión migrada + saveToStorage
+//            para persistir la migración (evita re-migrate en próximas cargas).
+//          - Si falla: log estructurado + saltar al próximo slot.
+function tryLoadSlot(rawString: string, source: string): boolean {
+  let data: unknown;
+  try {
+    data = JSON.parse(rawString);
+  } catch (e) {
+    console.error(`[load ${source}] JSON parse failed:`, e);
+    return false;
+  }
+
+  // 1. Validate as-is.
+  const direct = validateWorld(data);
+  if (direct.ok) {
+    _applyWorldFromData(direct.world as unknown as WorldData, 'storage');
+    const propCount = Array.isArray(direct.world.props) ? direct.world.props.length : 0;
+    console.log(`[load ${source}] restored: ${propCount} muebles`);
+    return true;
+  }
+
+  // 2. Failed. Clone + migrate + revalidate.
+  const migrated = loadAndMigrateWorld(data);
+  if (migrated.ok) {
+    _applyWorldFromData(migrated.world as unknown as WorldData, 'storage');
+    saveToStorage();   // persiste versión migrada en SLOT_CURRENT_KEY
+    const propCount = Array.isArray(migrated.world.props) ? migrated.world.props.length : 0;
+    console.warn(`[load ${source}] migrado y revalidado: ${propCount} muebles ✅`);
+    return true;
+  }
+
+  // 3. Sigue fallando después de migrate. Cuarentena el raw para preservar
+  // tu data: el caller legacy normalmente aplica defaultWorld + saveToStorage
+  // → eso pisa cwe_current. La cuarentena guarda el raw rechazado en una
+  // key separada para que puedas inspeccionarlo / restaurarlo manualmente.
+  try {
+    const quarantineKey = `cwe_quarantine_${source}_${Date.now()}`;
+    localStorage.setItem(quarantineKey, rawString);
+    console.error(`[load ${source}] world inválido. Raw guardado en localStorage.${quarantineKey} para revisión.`);
+  } catch (e) {
+    console.error(`[load ${source}] cuarentena del raw falló:`, e);
+  }
+  if ('issues' in migrated.error) {
+    const summary = migrated.error.issues
+      .map((i) => `${i.path.join('.')} :: ${i.code} :: ${i.message}`)
+      .join(' || ');
+    console.error(`[load ${source}] world inválido después de migrate: ${summary}`);
+  } else {
+    console.error(`[load ${source}] world inválido después de migrate`, migrated.error);
+  }
+  return false;
+}
+
 export function loadFromStorage(): boolean {
-  // 1. Intentar current
+  // 1. Intentar current.
   try {
     const raw = localStorage.getItem(SLOT_CURRENT_KEY);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (isValidWorldData(data)) {
-        _applyWorldFromData(data, 'storage');
-        console.log('[load] current restored:', data.props.length, 'muebles');
-        return true;
-      }
-    }
+    if (raw && tryLoadSlot(raw, 'current')) return true;
   } catch (e) {
     console.error('[load current] failed:', e);
   }
-  // 2. Migrar v2 → current
+  // 2. Migrar v2 → current.
   try {
     const raw = localStorage.getItem(STORAGE_KEY_V2);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (isValidWorldData(data)) {
-        _applyWorldFromData(data, 'storage');
-        saveToStorage();
-        localStorage.removeItem(STORAGE_KEY_V2);
-        console.log('[load] v2 migrated to current:', data.props.length, 'muebles');
-        return true;
-      }
+    if (raw && tryLoadSlot(raw, 'v2')) {
+      localStorage.removeItem(STORAGE_KEY_V2);
+      return true;
     }
   } catch (e) {
     console.error('[load v2 migration] failed:', e);
   }
-  // 3. Migrar v1 → current
+  // 3. Migrar v1 → current.
   try {
     const raw = localStorage.getItem(STORAGE_KEY_V1);
-    if (raw) {
-      const data = JSON.parse(raw);
-      if (isValidWorldData(data)) {
-        migrateV1WorldData(data);
-        _applyWorldFromData(data, 'storage');
-        saveToStorage();
-        localStorage.removeItem(STORAGE_KEY_V1);
-        console.log('[load] v1 migrated to current:', data.props.length, 'muebles');
-        return true;
-      }
+    if (raw && tryLoadSlot(raw, 'v1')) {
+      localStorage.removeItem(STORAGE_KEY_V1);
+      return true;
     }
   } catch (e) {
     console.error('[load v1 migration] failed:', e);

@@ -6,6 +6,7 @@
 import type { z } from 'zod';
 import type { Cutscene } from './model';
 import { CutsceneSchema, type Cutscene as CutsceneValidated } from './schema';
+import { loadAndMigrateCutscene } from './migrations';
 
 const CUTSCENES_STORAGE_KEY = 'agentsinc_cutscenes_v1';
 
@@ -59,7 +60,32 @@ export function deleteSavedCutscene(name: string): void {
 
 export function getSavedCutscene(name: string): CutsceneData | null {
   const map = loadAllSavedCutscenes();
-  return map[name] ?? null;
+  const raw = map[name];
+  if (raw === undefined) return null;
+
+  // 1. Validate as-is.
+  const direct = validateCutscene(raw);
+  if (direct.ok) return raw;
+
+  // 2. Failed validation. Intentar migrate (clone + migrate + revalidate).
+  const migrated = loadAndMigrateCutscene(raw);
+  if (migrated.ok) {
+    // Persistir versión migrada para evitar re-migrate en próximas cargas.
+    const newMap = loadAllSavedCutscenes();
+    newMap[name] = migrated.value as unknown as CutsceneData;
+    writeAllSavedCutscenes(newMap);
+    console.warn(`[cutscene/load] cutscene "${name}" migrada y revalidada ✅`);
+    return migrated.value as unknown as CutsceneData;
+  }
+  // 3. Sigue fallando después de migrate. Log estructurado.
+  console.error(`[cutscene/load] cutscene "${name}" inválida después de migrate`, {
+    issues: migrated.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      code: i.code,
+      message: i.message,
+    })),
+  });
+  return null;
 }
 
 export function saveCutsceneByName(name: string, data: CutsceneData): void {

@@ -34,15 +34,19 @@ export const ZoneSchema = z.object({
   cells: z.array(Vec2CellSchema),
 }).passthrough();
 
+// h/top/right/left son requeridos para floor props pero opcionales para
+// door/wall/ceiling: door props (game/migrations.ts:95) solo tienen
+// {id, category, cx, cy, side, kind}. Validar shape mínimo + dejar
+// runtime tolerar ausencia (mismo comportamiento del monolito).
 export const PropSchema = z.object({
   id: z.string(),
   cx: z.number(),
   cy: z.number(),
-  h: z.number(),
-  top: z.unknown(),
-  right: z.unknown(),
-  left: z.unknown(),
-  category: z.string(),     // 'floor' | 'wall' | 'ceiling' | otros
+  h: z.number().optional(),
+  top: z.unknown().optional(),
+  right: z.unknown().optional(),
+  left: z.unknown().optional(),
+  category: z.string(),     // 'floor' | 'wall' | 'door' | 'ceiling' | otros
   w: z.number().optional(),
   d: z.number().optional(),
   side: z.enum(['N', 'S', 'E', 'W']).optional(),
@@ -52,11 +56,13 @@ export const PropSchema = z.object({
   name: z.string().optional(),
 }).passthrough();
 
+// emoji puede ser string o array de strings (multi-glyph composition).
+// El monolito persiste lo que el agent tenga sin normalizar.
 export const AgentSchema = z.object({
   id: z.string().min(1, 'Agent.id requerido'),
   cx: z.number(),
   cy: z.number(),
-  emoji: z.string().optional(),
+  emoji: z.union([z.string(), z.array(z.string())]).optional(),
   voiceIdx: z.number().optional(),
   needs: z.record(z.string(), z.number()).optional(),
   heldItem: z.unknown().nullable().optional(),
