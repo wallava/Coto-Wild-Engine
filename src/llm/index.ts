@@ -41,3 +41,10 @@ export {
 } from './cost-tracker';
 
 export type { SessionCostTrackerOpts } from './cost-tracker';
+
+export { LLM_STORAGE_KEYS } from './storage-keys';
+
+export {
+  getLLMClient, setApiKey, clearApiKey, isLLMEnabled,
+  loadKillSwitchFromStorage, loadSessionCapFromStorage, sanitizeError,
+} from './factory';

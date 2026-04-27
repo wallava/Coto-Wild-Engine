@@ -139,6 +139,8 @@ export interface SessionCostTracker {
   canAffordEstimatedCall(model: LLMModel, estInputTokens: number, maxOutputTokens: number): boolean;
   /** Post-state check. true si ya superamos el cap. */
   isOverCap(): boolean;
+  /** Return = unsubscribe fn. */
+  onChange(cb: (cost: number) => void): () => void;
   reset(): void;
   setCap(capUSD: number): void;
 }

@@ -66,6 +66,38 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 21:00 - [FASE 5 INTERACTIVA] R2 Settings UI + factory + tests
+
+**Plan inicial**: Settings UI (modal con focus trap), factory con cache invalidation, sanitizeError con 2 patterns, tracker.onChange.
+
+**Review loop con Codex**: 1 round.
+- 1 bloqueante: sanitizeError nunca debe exponer raw error.
+- 3 gaps: persistencia session cap, test connection respeta cap/ignora killswitch, clear borra cache singleton.
+- Sugerencias: constantes centralizadas, focus trap, ESC close.
+
+**Tasks**:
+
+### CODEX-6: src/ui/settings-llm.ts (delegated, session a7ff2f7058d7c221e)
+- 419 LOC. Modal con focus trap + ESC close + labels accessibility.
+- Save/Clear (con confirm)/Test connection (respeta cap, ignora killswitch)/Session cost live/Killswitch toggle/Session cap input.
+
+### CODEX-7: factory + storage-keys + tracker.onChange (delegated, session a520c5a2949cd8adb)
+- src/llm/storage-keys.ts: LLM_STORAGE_KEYS centralizado.
+- src/llm/factory.ts: getLLMClient cache, setApiKey/clearApiKey con invalidation, isLLMEnabled, sanitizeError 2 patterns (regex + key actual), loadKillSwitchFromStorage, loadSessionCapFromStorage.
+- src/llm/cost-tracker.ts: SessionCostTracker.onChange(cb) → unsubscribe.
+- src/llm/types.ts: interface extended con onChange.
+- src/llm/index.ts: barrel actualizado.
+
+### CODEX-7B: tests (delegated, session a0697954153fa6baa)
+- tests/llm/factory.test.ts (11 tests): cache invalidation, sanitizeError con 2 patterns, isLLMEnabled killswitch.
+- tests/ui/settings-llm.test.ts (7 tests): mountLLMSettings DOM open/close/isOpen, tracker.onChange callback, unsubscribe.
+- jsdom no instalado, tests usan stubs locales.
+
+**Validación**: tsc ✅, smoke ✅, npm test **236/236** ✅ (218 + 18).
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 20:50 - [FASE 5 INTERACTIVA] R1 capa LLM base (5 archivos paralelos + 42 tests)
 
 **Plan inicial**: 5 jobs Codex paralelos + tests post-impl.

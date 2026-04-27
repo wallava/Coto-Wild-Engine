@@ -19,6 +19,7 @@ function assertValidCap(capUSD: number): void {
 export class SessionCostTrackerImpl implements SessionCostTracker {
   private sessionCostUSD = 0;
   private capUSD: number;
+  private listeners: Set<(cost: number) => void> = new Set();
 
   constructor(opts: SessionCostTrackerOpts = {}) {
     const capUSD = opts.capUSD ?? DEFAULT_CAP_USD;
@@ -28,6 +29,7 @@ export class SessionCostTrackerImpl implements SessionCostTracker {
 
   trackCall(usage: Usage, model: LLMModel, ttlHint?: CacheTTLHint): void {
     this.sessionCostUSD += actualCostUSD(model, usage, ttlHint);
+    for (const cb of this.listeners) cb(this.sessionCostUSD);
   }
 
   getSessionCost(): number {
@@ -47,13 +49,20 @@ export class SessionCostTrackerImpl implements SessionCostTracker {
     return this.sessionCostUSD > this.capUSD + EPSILON;
   }
 
+  onChange(cb: (cost: number) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
   reset(): void {
     this.sessionCostUSD = 0;
+    for (const cb of this.listeners) cb(0);
   }
 
   setCap(capUSD: number): void {
     assertValidCap(capUSD);
     this.capUSD = capUSD;
+    for (const cb of this.listeners) cb(this.sessionCostUSD);
   }
 }
 
