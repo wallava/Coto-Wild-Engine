@@ -109,6 +109,14 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**DIFERIDO CERRADO Wave C ceUpdateToolbarFields visibility**: → `src/editor/toolbar.ts::applyToolbarVisibility`
+- Tipo: CLAUDE
+- Status: ✅ Done (parcial — value-setting de selectedKf sigue en legacy)
+- Archivos: `src/editor/toolbar.ts` (+90 LOC), `src/legacy.ts` (~50 LOC reemplazadas)
+- Extraída la lógica de visibility CSS según activeType + showTrans + transIsNone (toda la rama mecánica). Tipos `ToolbarVisibilityRefs` + `ToolbarActiveType`.
+- Value-setting (`selectedKf` → `input.value` con guards de `document.activeElement`) sigue en legacy: depende de presets + activeElement check, no compensa parametrizar.
+- Validación: tsc ✅, smoke-test ✅
+
 **DIFERIDO CERRADO Wave G group-drag**: cloneScene + deleteSceneAndKfs + applyGroupDrag → `src/cutscene/scene-ops.ts`
 - Tipo: CLAUDE
 - Status: ✅ Done

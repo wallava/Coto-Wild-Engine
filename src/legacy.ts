@@ -96,6 +96,7 @@ import {
   updateTimeDisplay as toolbarUpdateTimeDisplay,
   refreshAgentSelect as toolbarRefreshAgentSelect,
   refreshParentSelect as toolbarRefreshParentSelect,
+  applyToolbarVisibility as toolbarApplyVisibility,
 } from './editor/toolbar';
 import {
   ensureSceneConsistency as cutsceneEnsureSceneConsistency,
@@ -2977,45 +2978,24 @@ import { formatRelTime } from './utils/format';
         if (selectedKf) activeType = selectedKf.type;
       }
     }
-    ceTextInput.style.display     = (activeType === 'speak') ? '' : 'none';
-    ceAnimSelect.style.display    = (activeType === 'animation') ? '' : 'none';
-    ceDurationInput.style.display = (activeType === 'animation' || activeType === 'fx') ? '' : 'none';
-    ceDurationLabel.style.display = (activeType === 'animation' || activeType === 'fx') ? '' : 'none';
-    ceParentSelect.style.display  = (activeType === 'camera') ? '' : 'none';
-    ceParentLabel.style.display   = (activeType === 'camera') ? '' : 'none';
-    ceCutLabel.style.display      = (activeType === 'camera') ? '' : 'none';
-    // Transition select: visible cuando tipo=camera Y (cut está marcado o el kf seleccionado tiene cut)
     const showTrans = (activeType === 'camera') && (
       (selectedKf && selectedKf.cut) || (!selectedKf && ceCutCheckbox.checked)
     );
-    ceTransSelect.style.display   = showTrans ? '' : 'none';
-    // Trans duration: visible solo si la transición no es 'none'
     const transValue = showTrans
       ? (selectedKf ? (selectedKf.transition || 'none') : ceTransSelect.value)
       : 'none';
-    ceTransDurInput.style.display = (showTrans && transValue !== 'none') ? '' : 'none';
-    ceFxSelect.style.display      = (activeType === 'fx') ? '' : 'none';
-    cePinLabel.style.display      = (activeType === 'fx') ? '' : 'none';
-    const ceNewFxBtn = document.getElementById('ce-new-fx');
-    if (ceNewFxBtn) ceNewFxBtn.style.display = (activeType === 'fx') ? '' : 'none';
-    // Walls UI: solo botón de techo + body class para activar cursor crosshair
-    const ceWallsRoofBtn = document.getElementById('ce-walls-roof');
-    const ceWallsRestoreBtn = document.getElementById('ce-walls-restore');
-    if (ceWallsRoofBtn) ceWallsRoofBtn.style.display = (activeType === 'walls') ? '' : 'none';
-    if (ceWallsRestoreBtn) ceWallsRestoreBtn.style.display = (activeType === 'walls') ? '' : 'none';
-    if (activeType === 'walls') {
-      document.body.classList.add('cs-walls-mode');
-    } else {
-      document.body.classList.remove('cs-walls-mode');
-    }
-    // Mostrar gizmo cámara solo cuando type=camera
-    if (typeof setCameraGizmoVisible === 'function') {
-      setCameraGizmoVisible(activeType === 'camera' && ceState.open);
-    }
-    const ceCamResetBtn = document.getElementById('ce-cam-reset');
-    if (ceCamResetBtn) ceCamResetBtn.style.display = (activeType === 'camera') ? '' : 'none';
-    const ceCamLensGroup = document.getElementById('ce-cam-lens-group');
-    if (ceCamLensGroup) ceCamLensGroup.style.display = (activeType === 'camera') ? 'inline-flex' : 'none';
+    toolbarApplyVisibility(
+      {
+        ceTextInput, ceAnimSelect, ceDurationInput, ceDurationLabel,
+        ceParentSelect, ceParentLabel, ceCutLabel,
+        ceTransSelect, ceTransDurInput, ceFxSelect, cePinLabel,
+      },
+      activeType,
+      !!showTrans,
+      transValue === 'none',
+      !!ceState.open,
+      setCameraGizmoVisible,
+    );
     if (activeType === 'camera') ceRefreshParentSelect();
     if (selectedKf) {
       if (selectedKf.type === 'speak' && document.activeElement !== ceTextInput) {

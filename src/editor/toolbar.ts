@@ -119,3 +119,69 @@ export function refreshParentSelect(
   }
   selectEl.value = currentParentAgentId || '';
 }
+
+export type ToolbarVisibilityRefs = {
+  ceTextInput: HTMLElement;
+  ceAnimSelect: HTMLElement;
+  ceDurationInput: HTMLElement;
+  ceDurationLabel: HTMLElement;
+  ceParentSelect: HTMLElement;
+  ceParentLabel: HTMLElement;
+  ceCutLabel: HTMLElement;
+  ceTransSelect: HTMLElement;
+  ceTransDurInput: HTMLElement;
+  ceFxSelect: HTMLElement;
+  cePinLabel: HTMLElement;
+};
+
+export type ToolbarActiveType = 'speak' | 'animation' | 'camera' | 'walls' | 'fx' | 'move' | string;
+
+/**
+ * Aplica visibilidad CSS a los inputs del toolbar según `activeType`.
+ * `showTrans` y `transNone` se calculan en el caller (dependen de selectedKf).
+ *
+ * Side effects: estilos de display de los refs + body class `cs-walls-mode`
+ * + `setCameraGizmoVisible(...)` callback + visibilidad de botones globales
+ * por id (`ce-new-fx`, `ce-walls-roof`, `ce-walls-restore`, `ce-cam-reset`,
+ * `ce-cam-lens-group`).
+ */
+export function applyToolbarVisibility(
+  refs: ToolbarVisibilityRefs,
+  activeType: ToolbarActiveType,
+  showTrans: boolean,
+  transIsNone: boolean,
+  editorOpen: boolean,
+  setCameraGizmoVisible: (visible: boolean) => void,
+): void {
+  refs.ceTextInput.style.display     = (activeType === 'speak') ? '' : 'none';
+  refs.ceAnimSelect.style.display    = (activeType === 'animation') ? '' : 'none';
+  refs.ceDurationInput.style.display = (activeType === 'animation' || activeType === 'fx') ? '' : 'none';
+  refs.ceDurationLabel.style.display = (activeType === 'animation' || activeType === 'fx') ? '' : 'none';
+  refs.ceParentSelect.style.display  = (activeType === 'camera') ? '' : 'none';
+  refs.ceParentLabel.style.display   = (activeType === 'camera') ? '' : 'none';
+  refs.ceCutLabel.style.display      = (activeType === 'camera') ? '' : 'none';
+  refs.ceTransSelect.style.display   = showTrans ? '' : 'none';
+  refs.ceTransDurInput.style.display = (showTrans && !transIsNone) ? '' : 'none';
+  refs.ceFxSelect.style.display      = (activeType === 'fx') ? '' : 'none';
+  refs.cePinLabel.style.display      = (activeType === 'fx') ? '' : 'none';
+
+  const ceNewFxBtn = document.getElementById('ce-new-fx');
+  if (ceNewFxBtn) ceNewFxBtn.style.display = (activeType === 'fx') ? '' : 'none';
+  const ceWallsRoofBtn = document.getElementById('ce-walls-roof');
+  const ceWallsRestoreBtn = document.getElementById('ce-walls-restore');
+  if (ceWallsRoofBtn) ceWallsRoofBtn.style.display = (activeType === 'walls') ? '' : 'none';
+  if (ceWallsRestoreBtn) ceWallsRestoreBtn.style.display = (activeType === 'walls') ? '' : 'none';
+
+  if (activeType === 'walls') {
+    document.body.classList.add('cs-walls-mode');
+  } else {
+    document.body.classList.remove('cs-walls-mode');
+  }
+
+  setCameraGizmoVisible(activeType === 'camera' && editorOpen);
+
+  const ceCamResetBtn = document.getElementById('ce-cam-reset');
+  if (ceCamResetBtn) ceCamResetBtn.style.display = (activeType === 'camera') ? '' : 'none';
+  const ceCamLensGroup = document.getElementById('ce-cam-lens-group');
+  if (ceCamLensGroup) ceCamLensGroup.style.display = (activeType === 'camera') ? 'inline-flex' : 'none';
+}
