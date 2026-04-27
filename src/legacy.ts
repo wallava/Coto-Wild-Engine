@@ -24,12 +24,11 @@ import {
   removePropAt,
   removePropRef,
   defaultWorld,
-  makeDefaultStyleGrid,
-  makeNullColorGrid,
   findPropAt,
   getFloorStackBase,
   getStacksOnFloor,
   canPlaceProp,
+  loadWorldData,
 } from './engine/world';
 import {
   SLOT_CURRENT_KEY,
@@ -346,64 +345,8 @@ import { formatRelTime } from './utils/format';
   // defaultWorld + makeDefaultStyleGrid + makeNullColorGrid ahora viven en src/world.ts.
 
   function applyWorld(w, source = 'storage') {
-    worldGrid.wallN = w.wallN;
-    worldGrid.wallW = w.wallW;
-    // Defaults: si vienen sin style (datos viejos), todo 'solid'
-    worldGrid.wallNStyle = w.wallNStyle || makeDefaultStyleGrid(GRID_H + 1, GRID_W);
-    worldGrid.wallWStyle = w.wallWStyle || makeDefaultStyleGrid(GRID_H, GRID_W + 1);
-    // Paint colors: null por celda significa "usar paleta default"
-    worldGrid.floorColors = w.floorColors || makeNullColorGrid(GRID_H, GRID_W);
-    worldGrid.wallNColors = w.wallNColors || makeNullColorGrid(GRID_H + 1, GRID_W);
-    worldGrid.wallWColors = w.wallWColors || makeNullColorGrid(GRID_H, GRID_W + 1);
-    // Habitaciones cerradas: solo metadata persistida (las cells se recalculan).
-    // Migración: si vino `rooms` (modelo intermedio v1.06), extraemos solo
-    // anchor + name + kind + color como roomMeta.
-    if (Array.isArray(w.roomMeta)) {
-      worldGrid.roomMeta = w.roomMeta.map(m => ({ ...m }));
-    } else if (Array.isArray(w.rooms)) {
-      worldGrid.roomMeta = w.rooms
-        .filter(r => r.source !== 'manual' && r.cells && r.cells.length > 0)
-        .map(r => {
-          // Recuperar anchorCx/Cy del primer cell con menor cy/cx
-          let anchor = r.cells[0];
-          for (const c of r.cells) {
-            if (c.cy < anchor.cy || (c.cy === anchor.cy && c.cx < anchor.cx)) anchor = c;
-          }
-          return {
-            id: r.id, name: r.name || '', kind: r.kind || null,
-            color: typeof r.color === 'number' ? r.color : pickRoomColor(),
-            anchorCx: anchor.cx, anchorCy: anchor.cy,
-          };
-        });
-    } else {
-      worldGrid.roomMeta = [];
-    }
-    // Zonas abiertas: cells persistidas, modelo manual.
-    // Migración: si vino `rooms` con source='manual', se cargan como zones.
-    if (Array.isArray(w.zones)) {
-      worldGrid.zones = w.zones.map(z => ({
-        ...z,
-        cells: (z.cells || []).map(c => ({ cx: c.cx, cy: c.cy })),
-      }));
-    } else if (Array.isArray(w.rooms)) {
-      worldGrid.zones = w.rooms
-        .filter(r => r.source === 'manual')
-        .map(r => ({
-          id: r.id, name: r.name || '', kind: r.kind || null,
-          color: typeof r.color === 'number' ? r.color : pickRoomColor(),
-          cells: (r.cells || []).map(c => ({ cx: c.cx, cy: c.cy })),
-        }));
-    } else {
-      worldGrid.zones = [];
-    }
-    props.length = 0;
-    // Bulk load: asignamos id si no viene (mundos pre-v1.01) sin emitir
-    // propPlaced por cada uno. Después emitimos un único worldLoaded.
-    for (const p of w.props) {
-      const cp = { ...p };
-      if (!cp.id) cp.id = uid();
-      props.push(cp);
-    }
+    // Carga geometría/props/zones via engine. Agents se restauran abajo (deps a scene+spawnAgent legacy).
+    loadWorldData(w, pickRoomColor);
     // Restaurar agentes con sus IDs. Si scene/spawnAgent todavía no están listos
     // (primer applyWorld del boot, antes de declarar `scene`), diferimos: guardamos
     // la data en window._pendingAgentsRestore y la consumimos al final del IIFE.

@@ -238,6 +238,88 @@ export function makeNullColorGrid(rows: number, cols: number): (number | null)[]
   return [...Array(rows)].map(() => Array(cols).fill(null));
 }
 
+// Carga datos persistidos al worldGrid + props singleton. Mutaciones bulk
+// (sin emitir prop por prop). NO toca agents NI emite worldLoaded — eso lo
+// hace el caller, que también restaura agents y dispara el evento.
+//
+// `pickColor` se pasa por callback para evitar ciclo con engine/rooms (pickRoomColor
+// vive ahí y rooms importa de world.ts).
+export type WorldLoadInput = {
+  wallN: boolean[][];
+  wallW: boolean[][];
+  wallNStyle?: WallStyle[][];
+  wallWStyle?: WallStyle[][];
+  floorColors?: (number | null)[][];
+  wallNColors?: (number | null)[][];
+  wallWColors?: (number | null)[][];
+  roomMeta?: Array<Record<string, unknown>>;
+  rooms?: Array<Record<string, unknown>>;
+  zones?: Array<Record<string, unknown>>;
+  props: Array<Record<string, unknown>>;
+};
+
+export function loadWorldData(
+  w: WorldLoadInput,
+  pickColor: () => number,
+): void {
+  worldGrid.wallN = w.wallN;
+  worldGrid.wallW = w.wallW;
+  worldGrid.wallNStyle = w.wallNStyle ?? makeDefaultStyleGrid(GRID_H + 1, GRID_W);
+  worldGrid.wallWStyle = w.wallWStyle ?? makeDefaultStyleGrid(GRID_H, GRID_W + 1);
+  worldGrid.floorColors = w.floorColors ?? makeNullColorGrid(GRID_H, GRID_W);
+  worldGrid.wallNColors = w.wallNColors ?? makeNullColorGrid(GRID_H + 1, GRID_W);
+  worldGrid.wallWColors = w.wallWColors ?? makeNullColorGrid(GRID_H, GRID_W + 1);
+  // roomMeta: forma actual (post v1.06) o migración de `rooms` v1.06
+  if (Array.isArray(w.roomMeta)) {
+    worldGrid.roomMeta = w.roomMeta.map((m) => ({ ...m }));
+  } else if (Array.isArray(w.rooms)) {
+    worldGrid.roomMeta = w.rooms
+      .filter((r) => r['source'] !== 'manual' && Array.isArray(r['cells']) && (r['cells'] as unknown[]).length > 0)
+      .map((r) => {
+        const cells = r['cells'] as Array<{ cx: number; cy: number }>;
+        let anchor = cells[0]!;
+        for (const c of cells) {
+          if (c.cy < anchor.cy || (c.cy === anchor.cy && c.cx < anchor.cx)) anchor = c;
+        }
+        return {
+          id: r['id'],
+          name: r['name'] || '',
+          kind: r['kind'] || null,
+          color: typeof r['color'] === 'number' ? r['color'] : pickColor(),
+          anchorCx: anchor.cx,
+          anchorCy: anchor.cy,
+        };
+      });
+  } else {
+    worldGrid.roomMeta = [];
+  }
+  // zones: forma actual o migración desde `rooms` con source='manual'
+  if (Array.isArray(w.zones)) {
+    worldGrid.zones = w.zones.map((z) => ({
+      ...z,
+      cells: ((z['cells'] as Array<{ cx: number; cy: number }>) ?? []).map((c) => ({ cx: c.cx, cy: c.cy })),
+    }));
+  } else if (Array.isArray(w.rooms)) {
+    worldGrid.zones = w.rooms
+      .filter((r) => r['source'] === 'manual')
+      .map((r) => ({
+        id: r['id'],
+        name: r['name'] || '',
+        kind: r['kind'] || null,
+        color: typeof r['color'] === 'number' ? r['color'] : pickColor(),
+        cells: ((r['cells'] as Array<{ cx: number; cy: number }>) ?? []).map((c) => ({ cx: c.cx, cy: c.cy })),
+      }));
+  } else {
+    worldGrid.zones = [];
+  }
+  props.length = 0;
+  for (const p of w.props) {
+    const cp: PropAny = { ...p };
+    if (!cp['id']) cp['id'] = uid();
+    props.push(cp);
+  }
+}
+
 // ── Mundo por defecto ─────────────────────────────────────────────
 // Layout inicial: 6×6 con muros exteriores, división horizontal en cy=3
 // (hueco en cx=2) y vertical en cx=3 (hueco en cy=1). Props demo distribuidos.
