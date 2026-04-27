@@ -35,8 +35,14 @@ Sin esto, todo lo demás está en pausa.
   (depende de spawnAgent extraction).
 - **Camera control** (theta/phi/zoom + updateCamera).
 - **buildScene loop + corner posts + props render** — chunk medio del IIFE.
-- **TECHO ROOF** (~480 líneas) — primer intento de extracción tuvo bug
-  TDZ ceState; pendiente investigar init order.
+- **TECHO ROOF** (~480 líneas) — **NO EXTRAER NUNCA**. Tres intentos
+  consecutivos (sesión 2026-04-26 y 2026-04-27) dispararon
+  `ReferenceError: Cannot access 'ceState' before initialization` al
+  cargar la página. La causa raíz nunca se identificó: el bloque ROOF
+  no referencia ceState directamente, pero al moverlo (extraer Y/O
+  pegar de vuelta de monolito) algo del init order rompe. Pablo
+  decidió reescribir el sistema de roof desde cero cuando llegue. Hasta
+  entonces, dejarlo donde está en `legacy.ts` intacto.
 - **Door animation** — eliminada por bug pre-existente, Pablo reescribirá.
 - **Animate loop + boot** → `main.ts` orchestrator final.
 
