@@ -29,6 +29,7 @@ import {
   findPropAt,
   getFloorStackBase,
   getStacksOnFloor,
+  canPlaceProp,
 } from './engine/world';
 import {
   SLOT_CURRENT_KEY,
@@ -617,129 +618,7 @@ import { formatRelTime } from './utils/format';
 
   // getFloorStackBase ahora en src/engine/world.ts.
 
-  function canPlaceProp(prop, newCx, newCy) {
-    const cat = prop.category || 'floor';
-
-    // ── Stack (objetos sobre mesa) ──
-    // Un stack ocupa 1 celda. Requiere un floor.stackable cubriendo esa celda.
-    // Solo un stack por celda.
-    if (cat === 'stack') {
-      if (newCx < 0 || newCx >= GRID_W || newCy < 0 || newCy >= GRID_H) return false;
-      if (!getFloorStackBase(newCx, newCy)) return false;
-      for (const p of props) {
-        if (p === prop) continue;
-        if ((p.category || 'floor') !== 'stack') continue;
-        if (p.cx === newCx && p.cy === newCy) return false;
-      }
-      return true;
-    }
-
-    // ── Wall props (cuadros) ──
-    // No ocupan celdas en el piso. side identifica la CARA de la pared
-    // donde cuelga el cuadro (= dirección hacia donde mira):
-    //   'N' → wallN[cy][cx], cara norte, visible desde cuarto al norte (cy-1).
-    //         Requiere cy > 0.
-    //   'S' → wallN[cy][cx], cara sur, visible desde cuarto al sur (cy).
-    //         Requiere cy < GRID_H.
-    //   'W' → wallW[cy][cx], cara oeste, visible desde cuarto al oeste (cx-1).
-    //         Requiere cx > 0.
-    //   'E' → wallW[cy][cx], cara este, visible desde cuarto al este (cx).
-    //         Requiere cx < GRID_W.
-    // Cada pared puede tener un cuadro DISTINTO en cada cara (N+S, o W+E).
-    if (cat === 'wall') {
-      const s = prop.side;
-      if (s === 'N' || s === 'S') {
-        if (newCx < 0 || newCx >= GRID_W) return false;
-        if (newCy < 0 || newCy > GRID_H) return false;
-        if (!hasWallN(newCx, newCy)) return false;
-        if (s === 'N' && newCy <= 0)        return false;  // sin cuarto al norte
-        if (s === 'S' && newCy >= GRID_H)   return false;  // sin cuarto al sur
-        // No coexisten cuadros con puertas en la misma pared
-        if (getDoorOnWallN(newCx, newCy)) return false;
-      } else if (s === 'E' || s === 'W') {
-        if (newCx < 0 || newCx > GRID_W) return false;
-        if (newCy < 0 || newCy >= GRID_H) return false;
-        if (!hasWallW(newCx, newCy)) return false;
-        if (s === 'W' && newCx <= 0)        return false;  // sin cuarto al oeste
-        if (s === 'E' && newCx >= GRID_W)   return false;  // sin cuarto al este
-        if (getDoorOnWallW(newCx, newCy)) return false;
-      } else {
-        return false;
-      }
-      // No otro wall prop en MISMA cara exacta (mismo side+cx+cy)
-      for (const p of props) {
-        if (p === prop) continue;
-        if ((p.category || 'floor') !== 'wall') continue;
-        if (p.side === prop.side && p.cx === newCx && p.cy === newCy) return false;
-      }
-      return true;
-    }
-
-    // ── Door props ──
-    // Una puerta ocupa AMBAS caras del segmento de pared. side determina hacia
-    // qué lado abre. La pared debe ser sólida (no ventanal ni ventanita).
-    // No coexisten con cuadros ni con otra puerta en el mismo segmento.
-    if (cat === 'door') {
-      const s = prop.side;
-      if (s === 'N' || s === 'S') {
-        if (newCx < 0 || newCx >= GRID_W) return false;
-        if (newCy < 0 || newCy > GRID_H) return false;
-        if (!hasWallN(newCx, newCy)) return false;
-        // Pared debe ser sólida
-        if (worldGrid.wallNStyle && worldGrid.wallNStyle[newCy][newCx] !== 'solid') return false;
-        // Ambas caras deben tener cuarto al lado (no exterior absoluto)
-        // Permitimos puertas exteriores también: comentario disponible si querés restringir
-        // No otro wall prop en ninguna cara
-        for (const p of props) {
-          if (p === prop) continue;
-          if ((p.category || 'floor') === 'wall' && p.cx === newCx && p.cy === newCy &&
-              (p.side === 'N' || p.side === 'S')) return false;
-          if ((p.category || 'floor') === 'door' && p.cx === newCx && p.cy === newCy &&
-              (p.side === 'N' || p.side === 'S')) return false;
-        }
-      } else if (s === 'E' || s === 'W') {
-        if (newCx < 0 || newCx > GRID_W) return false;
-        if (newCy < 0 || newCy >= GRID_H) return false;
-        if (!hasWallW(newCx, newCy)) return false;
-        if (worldGrid.wallWStyle && worldGrid.wallWStyle[newCy][newCx] !== 'solid') return false;
-        for (const p of props) {
-          if (p === prop) continue;
-          if ((p.category || 'floor') === 'wall' && p.cx === newCx && p.cy === newCy &&
-              (p.side === 'W' || p.side === 'E')) return false;
-          if ((p.category || 'floor') === 'door' && p.cx === newCx && p.cy === newCy &&
-              (p.side === 'W' || p.side === 'E')) return false;
-        }
-      } else {
-        return false;
-      }
-      return true;
-    }
-
-    // ── Floor & Rug ──
-    if (newCx < 0 || newCy < 0) return false;
-    if (newCx + prop.w > GRID_W || newCy + prop.d > GRID_H) return false;
-    // Solapamiento: solo prohíbe contra props de la MISMA categoría.
-    // (Un floor puede ir encima de un rug y viceversa.)
-    for (const p of props) {
-      if (p === prop) continue;
-      const pcat = p.category || 'floor';
-      if (pcat !== cat) continue;
-      if (newCx < p.cx + p.w && newCx + prop.w > p.cx &&
-          newCy < p.cy + p.d && newCy + prop.d > p.cy) return false;
-    }
-    // Solo floor pisa agentes; rugs los dejan pasar.
-    if (cat === 'floor') {
-      for (let dy = 0; dy < prop.d; dy++) {
-        for (let dx = 0; dx < prop.w; dx++) {
-          if (isAgentAt(newCx + dx, newCy + dy)) return false;
-        }
-      }
-    }
-    // Multi-cell no atraviesa pared interior (aplica a floor y rug)
-    if (prop.w === 2 && hasWallW(newCx + 1, newCy)) return false;
-    if (prop.d === 2 && hasWallN(newCx, newCy + 1)) return false;
-    return true;
-  }
+  // canPlaceProp ahora en src/engine/world.ts.
 
   // getStacksOnFloor ahora en src/engine/world.ts.
 

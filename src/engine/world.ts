@@ -7,6 +7,8 @@
 import { uid } from '../utils/id';
 import { eventBus } from './event-bus';
 import { GRID_W, GRID_H } from './state';
+import { hasWallN, hasWallW, getDoorOnWallN, getDoorOnWallW } from './wall-queries';
+import { isAgentAt } from './agents-state';
 
 export type WallStyle = 'solid' | 'window' | 'door';
 
@@ -92,6 +94,116 @@ export function getFloorStackBase(cx: number, cy: number): PropAny | null {
     }
   }
   return null;
+}
+
+// ¿Se puede colocar el prop en (newCx, newCy)? Reglas según category:
+//   - stack: requiere floor.stackable abajo + 1 stack por celda max.
+//   - wall (cuadro): pared existe + cara con cuarto del lado correspondiente
+//     + no coexiste con puerta + no otro cuadro en misma cara exacta.
+//   - door: pared sólida (no ventana) + no coexiste con cuadros ni otra puerta.
+//   - floor/rug: dentro de grid + no overlap mismas categorías + (floor) no
+//     pisa agentes + multi-cell no atraviesa pared interior.
+export function canPlaceProp(prop: PropAny, newCx: number, newCy: number): boolean {
+  const cat = (prop['category'] as string) || 'floor';
+
+  if (cat === 'stack') {
+    if (newCx < 0 || newCx >= GRID_W || newCy < 0 || newCy >= GRID_H) return false;
+    if (!getFloorStackBase(newCx, newCy)) return false;
+    for (const p of props) {
+      if (p === prop) continue;
+      if (((p['category'] as string) || 'floor') !== 'stack') continue;
+      if (p['cx'] === newCx && p['cy'] === newCy) return false;
+    }
+    return true;
+  }
+
+  if (cat === 'wall') {
+    const s = prop['side'];
+    if (s === 'N' || s === 'S') {
+      if (newCx < 0 || newCx >= GRID_W) return false;
+      if (newCy < 0 || newCy > GRID_H) return false;
+      if (!hasWallN(newCx, newCy)) return false;
+      if (s === 'N' && newCy <= 0) return false;
+      if (s === 'S' && newCy >= GRID_H) return false;
+      if (getDoorOnWallN(newCx, newCy)) return false;
+    } else if (s === 'E' || s === 'W') {
+      if (newCx < 0 || newCx > GRID_W) return false;
+      if (newCy < 0 || newCy >= GRID_H) return false;
+      if (!hasWallW(newCx, newCy)) return false;
+      if (s === 'W' && newCx <= 0) return false;
+      if (s === 'E' && newCx >= GRID_W) return false;
+      if (getDoorOnWallW(newCx, newCy)) return false;
+    } else {
+      return false;
+    }
+    for (const p of props) {
+      if (p === prop) continue;
+      if (((p['category'] as string) || 'floor') !== 'wall') continue;
+      if (p['side'] === prop['side'] && p['cx'] === newCx && p['cy'] === newCy) return false;
+    }
+    return true;
+  }
+
+  if (cat === 'door') {
+    const s = prop['side'];
+    if (s === 'N' || s === 'S') {
+      if (newCx < 0 || newCx >= GRID_W) return false;
+      if (newCy < 0 || newCy > GRID_H) return false;
+      if (!hasWallN(newCx, newCy)) return false;
+      const wallNStyle = worldGrid.wallNStyle as string[][] | undefined;
+      if (wallNStyle && wallNStyle[newCy]?.[newCx] !== 'solid') return false;
+      for (const p of props) {
+        if (p === prop) continue;
+        const pcat = (p['category'] as string) || 'floor';
+        if ((pcat === 'wall' || pcat === 'door')
+            && p['cx'] === newCx && p['cy'] === newCy
+            && (p['side'] === 'N' || p['side'] === 'S')) return false;
+      }
+    } else if (s === 'E' || s === 'W') {
+      if (newCx < 0 || newCx > GRID_W) return false;
+      if (newCy < 0 || newCy >= GRID_H) return false;
+      if (!hasWallW(newCx, newCy)) return false;
+      const wallWStyle = worldGrid.wallWStyle as string[][] | undefined;
+      if (wallWStyle && wallWStyle[newCy]?.[newCx] !== 'solid') return false;
+      for (const p of props) {
+        if (p === prop) continue;
+        const pcat = (p['category'] as string) || 'floor';
+        if ((pcat === 'wall' || pcat === 'door')
+            && p['cx'] === newCx && p['cy'] === newCy
+            && (p['side'] === 'W' || p['side'] === 'E')) return false;
+      }
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  // floor / rug
+  const pw = (prop['w'] as number) ?? 1;
+  const pd = (prop['d'] as number) ?? 1;
+  if (newCx < 0 || newCy < 0) return false;
+  if (newCx + pw > GRID_W || newCy + pd > GRID_H) return false;
+  for (const p of props) {
+    if (p === prop) continue;
+    const pcat = (p['category'] as string) || 'floor';
+    if (pcat !== cat) continue;
+    const px = p['cx'] as number;
+    const py = p['cy'] as number;
+    const opw = (p['w'] as number) ?? 1;
+    const opd = (p['d'] as number) ?? 1;
+    if (newCx < px + opw && newCx + pw > px &&
+        newCy < py + opd && newCy + pd > py) return false;
+  }
+  if (cat === 'floor') {
+    for (let dy = 0; dy < pd; dy++) {
+      for (let dx = 0; dx < pw; dx++) {
+        if (isAgentAt(newCx + dx, newCy + dy)) return false;
+      }
+    }
+  }
+  if (pw === 2 && hasWallW(newCx + 1, newCy)) return false;
+  if (pd === 2 && hasWallN(newCx, newCy + 1)) return false;
+  return true;
 }
 
 // Devuelve los stack props que están encima del floor stackable dado, cada
