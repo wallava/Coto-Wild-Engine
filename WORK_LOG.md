@@ -66,6 +66,80 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 09:30 - [NOCTURNO] Cierre completo: Waves H/I/J + diferidos + tests
+
+**Activación**: continuación post-Wave G. Pablo pidió Waves H, I, J + diferidos + tests, soft stop 8:00 AM o fin migración.
+
+### Resumen ejecutivo
+
+**Waves cerradas en esta tanda**:
+- Wave H ✅ drag/snap operations → `src/cutscene/scene-ops.ts`
+- Wave I ✅ lifecycle helpers → `src/editor/lifecycle.ts` (parcial: ceOpen/ceClose orchestrators stay)
+- Wave J ✅ ceInsertCutAt → `src/cutscene/cuts.ts`
+
+**Diferidos cerrados**:
+- Group-drag (Wave G): cloneScene + deleteSceneAndKfs + applyGroupDrag → scene-ops.ts
+- ceUpdateToolbarFields visibility (Wave C): applyToolbarVisibility → toolbar.ts
+- Fade overlay opacity (Wave D): computeFadeOpacity → runtime.ts
+
+**Tests**:
+- `tests/cutscene/inheritance.test.ts` con 16 casos, vitest 3.2.4 instalado.
+- `engine/coords.ts` mencionado en objetivos no existe → SKIP-AMBIGUO documentado.
+
+**Diferidos que siguen abiertos**:
+- ceStartGroupDrag (~90 LOC): coordina multiSel + JSON.stringify(serialize) baseline + render. Mantener en legacy es más simple que parametrizar 4 callbacks.
+- ceUpdateToolbarFields value-setting (~25 LOC): depende de `document.activeElement` checks + presets.
+- Resto del body de ceUpdate (POV early, walls, agents, camera interp, FX eval): Codex review previa marcó como NO-low-risk por orden per-frame.
+- POV controls / cePreviewMode / ceScrubFromEvent: orchestrators con coordinación cruzada, esperan refactor mayor.
+
+**Anti-loops activados**: ninguno.
+**[QUARANTINE]**: ninguno.
+**[BROKEN-GAME-REVERTED]**: ninguno.
+**[TSC-FAIL-REVERTED]**: ninguno.
+**[SKIP-BLACKLIST]**: ninguno (instalación de vitest considerada parte del objetivo de tests).
+**[SKIP-AMBIGUO]**: 1 — engine/coords.ts no existe.
+
+**Estado del repo al cierre**:
+- HEAD: `264c4f4 Tests críticos: cutscene/inheritance.ts (16 casos, vitest)`
+- legacy.ts: **6085 LOC** (era ~7102 al inicio de Fase 2 cutscene → -1017 LOC migradas)
+- tsc ✅ pasa
+- smoke-test ✅ pasa (lifecycle round-trip + DOM verify)
+- npm run test ✅ 16/16
+- vite arranca limpio en localhost:5173
+
+**Archivos nuevos creados esta sesión**:
+- `src/cutscene/scene-ops.ts` (388 LOC)
+- `src/cutscene/cuts.ts` (130 LOC)
+- `src/cutscene/runtime.ts` (extendido con computeFadeOpacity)
+- `src/editor/lifecycle.ts` (145 LOC)
+- `tests/cutscene/inheritance.test.ts` (165 LOC)
+
+**Archivos extendidos esta sesión**:
+- `src/editor/toolbar.ts` (+90 LOC: applyToolbarVisibility)
+- `src/cutscene/runtime.ts` (+25 LOC: computeFadeOpacity)
+- `package.json` (script `test` + dep `vitest`)
+
+**Commits totales esta sesión** (post-baseline `714a8a3`):
+1. `3888402` Wave E: gizmo wire-in
+2. `59fdaf0` Wave F: FX system
+3. `b934748` Smoke test mejorado
+4. `02a5ddd` Wave G: multi-sel + lasso
+5. `dddf443` Wave H: drag/snap
+6. `f07fd55` Wave I: lifecycle helpers
+7. `0f97b4f` Wave J: ceInsertCutAt
+8. `306b790` Diferido group-drag
+9. `84ad991` Diferido toolbar visibility
+10. `65a150c` Diferido fade opacity
+11. `264c4f4` Tests inheritance (16 casos)
+
+**Para revisión visual de Pablo en la mañana**: 
+- Group-drag con clonado (alt+drag de múltiples planos): probar visualmente que el clone heredra kfs camera/walls/fx/tracks correctamente.
+- Apply de visibility del toolbar: cambiar entre activeType=speak/animation/camera/walls/fx y verificar que los inputs correctos aparecen/desaparecen.
+- Lasso (shift+drag en timeline): verificar que selección por área marca scenes y kfs como antes.
+- Fade entre cuts: en POV, scrubbear cerca de un kf con `transition='fade'` y verificar fade overlay.
+
+---
+
 ## 2026-04-27 08:41 - [NOCTURNO] Reanudación post-handoff: Waves B→J cutscene
 
 **Activación**: 2026-04-27 08:41. Pablo restart manual sin esperar ScheduleWakeup 09:08. Bypass mode confirmado activo (sin prompts), vite up (PID 27515), timeline.ts ya escrito sin cablear.
