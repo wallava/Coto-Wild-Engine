@@ -15,6 +15,25 @@
 import { GRID_H } from './state';
 import { uid } from '../utils/id';
 import { eventBus } from './event-bus';
+import { worldGrid, props } from './world';
+
+// agents son globales en legacy hasta que se extraiga el chassis. Acá
+// recibimos via getter callback para que serializeWorld pueda incluirlos.
+type AgentSerializable = {
+  id: string;
+  cx: number;
+  cy: number;
+  emoji?: unknown;
+  voiceIdx?: number;
+  needs?: Record<string, number>;
+  heldItem?: unknown;
+};
+
+let _getAgents: () => AgentSerializable[] = () => [];
+
+export function setAgentsGetter(getter: () => AgentSerializable[]): void {
+  _getAgents = getter;
+}
 
 // ── Storage keys ────────────────────────────────────────────────────
 export const SLOT_CURRENT_KEY = 'cwe_current';
@@ -114,4 +133,58 @@ export function deleteSlot(id: string): void {
   const slots = getSlots().filter((s) => s.id !== id);
   setSlots(slots);
   eventBus.emit('slotDeleted', { id });
+}
+
+// Serializa worldGrid + props + agents a un objeto plano (idempotente).
+// agents viene del getter callback (legacy hasta extraer agent chassis).
+type ZoneShape = { id: string; name: string; kind: string | null; color: number; cells: { cx: number; cy: number }[] };
+type RoomMetaShape = { id: string; name: string; kind: string | null; color: number; anchorCx: number; anchorCy: number };
+
+export function serializeWorld(): WorldData {
+  return {
+    wallN: worldGrid.wallN as unknown[][],
+    wallW: worldGrid.wallW as unknown[][],
+    wallNStyle: worldGrid.wallNStyle,
+    wallWStyle: worldGrid.wallWStyle,
+    floorColors: worldGrid.floorColors,
+    wallNColors: worldGrid.wallNColors,
+    wallWColors: worldGrid.wallWColors,
+    roomMeta: ((worldGrid.roomMeta as RoomMetaShape[] | undefined) ?? []).map((m) => ({ ...m })),
+    zones: ((worldGrid.zones as ZoneShape[] | undefined) ?? []).map((z) => ({
+      id: z.id,
+      name: z.name,
+      kind: z.kind,
+      color: z.color,
+      cells: z.cells.map((c) => ({ cx: c.cx, cy: c.cy })),
+    })),
+    props: props.map((p) => {
+      const out: Record<string, unknown> = {
+        id: p['id'],
+        cx: p['cx'],
+        cy: p['cy'],
+        h: p['h'],
+        top: p['top'],
+        right: p['right'],
+        left: p['left'],
+        category: (p['category'] as string) || 'floor',
+      };
+      if (p['w'] !== undefined) out['w'] = p['w'];
+      if (p['d'] !== undefined) out['d'] = p['d'];
+      if (p['side'] !== undefined) out['side'] = p['side'];
+      if (p['zOffset'] !== undefined) out['zOffset'] = p['zOffset'];
+      if (p['stackable']) out['stackable'] = true;
+      if (p['kind'] !== undefined) out['kind'] = p['kind'];
+      if (p['name'] !== undefined) out['name'] = p['name'];
+      return out;
+    }),
+    agents: _getAgents().map((a) => ({
+      id: a.id,
+      cx: a.cx,
+      cy: a.cy,
+      emoji: a.emoji,
+      voiceIdx: a.voiceIdx,
+      needs: a.needs ? { ...a.needs } : undefined,
+      heldItem: a.heldItem ?? null,
+    })),
+  };
 }

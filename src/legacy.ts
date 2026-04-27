@@ -41,6 +41,8 @@ import {
   setSlots,
   deleteSlot,
   saveSlot as persistSaveSlot,
+  serializeWorld as engineSerializeWorld,
+  setAgentsGetter as setPersistenceAgentsGetter,
 } from './engine/persistence';
 import {
   initThoughtBubbles,
@@ -141,6 +143,7 @@ import {
   WALL_PROP_TEMPLATES,
   DOOR_PROP_TEMPLATES,
 } from './game/prop-catalog';
+import { migrateLoadedProps } from './game/migrations';
 import {
   AGENT_KITS,
   BRAIN_FONT_SIZE,
@@ -382,136 +385,7 @@ import { formatRelTime } from './utils/format';
     eventBus.emit('worldLoaded', { source, propsCount: props.length });
   }
 
-  // Migración + limpieza de props después de cargar. Se ejecuta una vez al inicio,
-  // DESPUÉS de que PROP_TEMPLATES esté definido (de ahí que esté separado de
-  // applyWorld). Hace dos cosas:
-  //   1. Datos pre-v0.94 no tienen el flag `stackable` en mesas. Si las dimensiones
-  //      de un floor coinciden con un template stackable, se infiere el flag.
-  //   2. Stacks huérfanos (en celdas sin floor stackable abajo) se descartan, para
-  //      evitar zombis invisibles que bloquean canPlaceProp.
-  function migrateLoadedProps() {
-    // Migración kind/name: props guardados antes de v1.14 no tenían kind ni name.
-    // Recuperar matchando por (category, w, d, h) contra PROP_TEMPLATES + DOOR_PROP_TEMPLATES.
-    let kindMigrated = 0;
-    for (const p of props) {
-      const cat = p.category || 'floor';
-      if (cat === 'door') {
-        // Las puertas tienen kind={wood,modern,glass} en otra dimensión. Ya
-        // se setea en migración legacy. Skip.
-        continue;
-      }
-      if (cat === 'wall') {
-        // Cuadros: matchear contra WALL_PROP_TEMPLATES por (h, top)
-        if (!p.kind) {
-          const t = WALL_PROP_TEMPLATES.find(t => t.h === p.h && t.top === p.top);
-          if (t) {
-            p.kind = 'painting';   // todos los wall props son 'painting' por defecto
-            if (!p.name) p.name = t.name;
-            kindMigrated++;
-          }
-        }
-        continue;
-      }
-      if (p.kind && p.name) continue;
-      const pw = p.w || 1, pd = p.d || 1;
-      const t = PROP_TEMPLATES.find(t =>
-        (t.category || 'floor') === cat &&
-        t.h === p.h && (t.w || 1) === pw && (t.d || 1) === pd &&
-        t.top === p.top
-      );
-      if (t) {
-        if (!p.kind) p.kind = t.kind;
-        if (!p.name) p.name = t.name;
-        kindMigrated++;
-      }
-    }
-    if (kindMigrated > 0) console.log('[migrate] props sin kind/name recuperados:', kindMigrated);
-
-    for (const p of props) {
-      if ((p.category || 'floor') !== 'floor') continue;
-      if (p.stackable) continue;
-      const pw = p.w || 1, pd = p.d || 1;
-      const match = PROP_TEMPLATES.find(t =>
-        (t.category || 'floor') === 'floor' &&
-        t.stackable === true &&
-        t.h === p.h && (t.w || 1) === pw && (t.d || 1) === pd
-      );
-      if (match) p.stackable = true;
-    }
-    let orphans = 0;
-    for (let i = props.length - 1; i >= 0; i--) {
-      const p = props[i];
-      if ((p.category || 'floor') !== 'stack') continue;
-      if (!getFloorStackBase(p.cx, p.cy)) {
-        props.splice(i, 1);
-        orphans++;
-      }
-    }
-    if (orphans > 0) console.warn('[load] stacks huérfanos descartados:', orphans);
-    // Migración: paredes con style 'door' (modelo viejo v1.09-v1.10) ahora son
-    // pared 'solid' + door prop con kind='wood' por default. Como las puertas
-    // no coexisten con cuadros, removemos cualquier wall prop colgado en el
-    // mismo segmento (caras N/S si era wallN, W/E si era wallW).
-    let doorMigrated = 0;
-    let conflictedWallPropsRemoved = 0;
-    for (let cy = 0; cy <= GRID_H; cy++) {
-      for (let cx = 0; cx < GRID_W; cx++) {
-        if (worldGrid.wallNStyle && worldGrid.wallNStyle[cy] && worldGrid.wallNStyle[cy][cx] === 'door') {
-          worldGrid.wallNStyle[cy][cx] = 'solid';
-          props.push({
-            id: uid(), category: 'door', cx, cy, side: 'S', kind: 'wood',
-          });
-          // Limpiar cuadros en ambas caras de este segmento
-          for (let i = props.length - 1; i >= 0; i--) {
-            const p = props[i];
-            if ((p.category || 'floor') !== 'wall') continue;
-            if (p.cx !== cx || p.cy !== cy) continue;
-            if (p.side === 'N' || p.side === 'S') {
-              props.splice(i, 1);
-              conflictedWallPropsRemoved++;
-            }
-          }
-          doorMigrated++;
-        }
-      }
-    }
-    for (let cy = 0; cy < GRID_H; cy++) {
-      for (let cx = 0; cx <= GRID_W; cx++) {
-        if (worldGrid.wallWStyle && worldGrid.wallWStyle[cy] && worldGrid.wallWStyle[cy][cx] === 'door') {
-          worldGrid.wallWStyle[cy][cx] = 'solid';
-          props.push({
-            id: uid(), category: 'door', cx, cy, side: 'E', kind: 'wood',
-          });
-          for (let i = props.length - 1; i >= 0; i--) {
-            const p = props[i];
-            if ((p.category || 'floor') !== 'wall') continue;
-            if (p.cx !== cx || p.cy !== cy) continue;
-            if (p.side === 'W' || p.side === 'E') {
-              props.splice(i, 1);
-              conflictedWallPropsRemoved++;
-            }
-          }
-          doorMigrated++;
-        }
-      }
-    }
-    if (doorMigrated > 0) console.log('[migrate] paredes con style door → puerta-prop:', doorMigrated,
-      conflictedWallPropsRemoved > 0 ? `(+ ${conflictedWallPropsRemoved} cuadros en conflicto removidos)` : '');
-    // Limpieza adicional defensiva: cualquier door + wall coexistiendo (por
-    // bugs anteriores) — la puerta se queda, el cuadro se va.
-    let extraConflicts = 0;
-    for (let i = props.length - 1; i >= 0; i--) {
-      const p = props[i];
-      if ((p.category || 'floor') !== 'wall') continue;
-      const isHoriz = (p.side === 'N' || p.side === 'S');
-      const door = isHoriz ? getDoorOnWallN(p.cx, p.cy) : getDoorOnWallW(p.cx, p.cy);
-      if (door) {
-        props.splice(i, 1);
-        extraConflicts++;
-      }
-    }
-    if (extraConflicts > 0) console.log('[migrate] cuadros coexistiendo con puertas removidos:', extraConflicts);
-  }
+  // migrateLoadedProps ahora en src/game/migrations.ts (importada al top).
 
   // ── Persistencia: slots múltiples ──
   // Hay un slot "current" (cwe_current) que se autoguarda con cada cambio.
@@ -524,47 +398,9 @@ import { formatRelTime } from './utils/format';
   // cwe_current con migración de side de wall props ('N'→'S', 'W'→'E').
   // SLOT_CURRENT_KEY / SLOT_LIST_KEY / STORAGE_KEY_V2 / STORAGE_KEY_V1 ahora en src/persistence.ts.
 
-  // Serializa el worldGrid + props actuales a un objeto plano (idempotente).
-  function serializeWorld() {
-    return {
-      wallN: worldGrid.wallN,
-      wallW: worldGrid.wallW,
-      wallNStyle: worldGrid.wallNStyle,
-      wallWStyle: worldGrid.wallWStyle,
-      floorColors: worldGrid.floorColors,
-      wallNColors: worldGrid.wallNColors,
-      wallWColors: worldGrid.wallWColors,
-      roomMeta: (worldGrid.roomMeta || []).map(m => ({ ...m })),
-      zones: (worldGrid.zones || []).map(z => ({
-        id: z.id, name: z.name, kind: z.kind, color: z.color,
-        cells: z.cells.map(c => ({ cx: c.cx, cy: c.cy })),
-      })),
-      props: props.map(p => {
-        const out = {
-          id: p.id,
-          cx: p.cx, cy: p.cy, h: p.h,
-          top: p.top, right: p.right, left: p.left,
-          category: p.category || 'floor',
-        };
-        if (p.w !== undefined) out.w = p.w;
-        if (p.d !== undefined) out.d = p.d;
-        if (p.side !== undefined) out.side = p.side;
-        if (p.zOffset !== undefined) out.zOffset = p.zOffset;
-        if (p.stackable) out.stackable = true;
-        if (p.kind !== undefined) out.kind = p.kind;
-        if (p.name !== undefined) out.name = p.name;
-        return out;
-      }),
-      agents: agents.map(a => ({
-        id: a.id,
-        cx: a.cx, cy: a.cy,
-        emoji: a.emoji,
-        voiceIdx: a.voiceIdx,
-        needs: a.needs ? { ...a.needs } : undefined,
-        heldItem: a.heldItem || null,
-      })),
-    };
-  }
+  // serializeWorld ahora vive en src/engine/persistence.ts.
+  // Wrapper para no cambiar callsites existentes.
+  const serializeWorld = engineSerializeWorld;
 
   // isValidWorldData + migrateV1WorldData ahora viven en src/persistence.ts.
 
@@ -1013,45 +849,17 @@ import { formatRelTime } from './utils/format';
   let paintDragging = false;     // mouse down + arrastra para pintar continuo
   let paintLastKey = null;       // cache del último target pintado (evita repetir buildScene)
 
+  // paintFloorTile + paintWallFace ahora son wrappers thin sobre
+  // setFloorTileColor + setWallFaceColor del engine + render + save.
   function paintFloorTile(cx, cy) {
-    if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return;
-    if (!worldGrid.floorColors) return;
-    worldGrid.floorColors[cy][cx] = paintColor;
+    setFloorTileColor(cx, cy);
     buildScene();
     markWorldChanged();
   }
-
   function paintWallFace(face) {
-    // face = { side, cx, cy } como devuelve findNearestPlaceableWallFace
     if (!face) return;
-    if (face.side === 'N' || face.side === 'S') {
-      let entry = worldGrid.wallNColors[face.cy][face.cx];
-      if (paintColor === null) {
-        // Limpiar esa cara. Si la otra cara ya estaba en default, eliminamos toda la entrada.
-        if (entry) {
-          delete entry[face.side];
-          if (entry.N === undefined && entry.S === undefined) {
-            worldGrid.wallNColors[face.cy][face.cx] = null;
-          }
-        }
-      } else {
-        if (!entry) entry = worldGrid.wallNColors[face.cy][face.cx] = {};
-        entry[face.side] = paintColor;
-      }
-    } else {
-      let entry = worldGrid.wallWColors[face.cy][face.cx];
-      if (paintColor === null) {
-        if (entry) {
-          delete entry[face.side];
-          if (entry.W === undefined && entry.E === undefined) {
-            worldGrid.wallWColors[face.cy][face.cx] = null;
-          }
-        }
-      } else {
-        if (!entry) entry = worldGrid.wallWColors[face.cy][face.cx] = {};
-        entry[face.side] = paintColor;
-      }
-    }
+    const type = (face.side === 'N' || face.side === 'S') ? 'wallN' : 'wallW';
+    setWallFaceColor(type, face.cx, face.cy, face.side);
     buildScene();
     markWorldChanged();
   }
@@ -2248,6 +2056,7 @@ import { formatRelTime } from './utils/format';
   //  AGENTS — pathfinding A* sobre el grid + walking continuo
   // ══════════════════════════════════════════════════════════════
   const agents = [];
+  setPersistenceAgentsGetter(() => agents);   // engine/persistence lee desde acá
   let paused = false;
 
 
