@@ -55,6 +55,49 @@ import {
   loadAllSavedCutscenes,
   writeAllSavedCutscenes,
 } from './cutscene/persistence';
+import {
+  hasWallN,
+  hasWallW,
+  getDoorOnWallN,
+  getDoorOnWallW,
+  blocksSpillN,
+  blocksSpillW,
+  blocksPathN,
+  blocksPathW,
+  blocksWallN,
+  blocksWallW,
+  isCorner,
+} from './engine/wall-queries';
+import { mkBox, makeGlassMesh, setStrokesGetter } from './engine/three-primitives';
+import { DOOR_TEMPLATES, doorTpl, makeDoorPanelMesh } from './engine/door-panels';
+import {
+  initSceneGraph,
+  addToScene,
+  registerDoorPivot,
+  clearScene as engineClearScene,
+} from './engine/scene-graph';
+import {
+  buildSolidWallN,
+  buildSolidWallW,
+  buildWindowHalfRunN,
+  buildWindowHalfRunW,
+  buildSolidWallNWithDoor,
+  buildSolidWallWWithDoor,
+  addDoorPanelN,
+  addDoorPanelW,
+} from './engine/walls-render';
+import {
+  pickRoomColor,
+  computeFloodFillFloor,
+  computeFloodFillRoomFaces,
+  computeAllRooms,
+  reconcileRoomMeta,
+  getRooms,
+  computeRoomHasDoor,
+  propsInCells,
+  getZones,
+  getZoneAt,
+} from './engine/rooms';
 import { VOICE_PRESETS, hashStringToInt, pickVoiceIdx } from './engine/voices';
 import { escapeHtml } from './utils/escape-html';
 import {
@@ -89,6 +132,7 @@ import {
   let WALL_H = WALL_H_UP;
   let wallMode = 'up';
   let showStrokes = true;
+  setStrokesGetter(() => showStrokes);   // engine/three-primitives lee desde acá
 
   // ══════════════════════════════════════════════════════════════
   //  CONFIG TWEAKABLE — variables ajustables en vivo
@@ -558,76 +602,9 @@ import {
   // Carga inicial: intenta restaurar de localStorage; si no hay, usa default.
   if (!loadFromStorage()) applyWorld(defaultWorld(), 'default');
 
-  function hasWallN(cx, cy) {
-    if (cy < 0 || cy > GRID_H || cx < 0 || cx >= GRID_W) return false;
-    return worldGrid.wallN[cy][cx];
-  }
-  function hasWallW(cx, cy) {
-    if (cx < 0 || cx > GRID_W || cy < 0 || cy >= GRID_H) return false;
-    return worldGrid.wallW[cy][cx];
-  }
-
-  // ── Door prop helpers ──
-  // Las puertas son props con categoría 'door'. Una puerta ocupa AMBAS caras
-  // de un segmento de pared (no se permite cuadro+puerta en la misma cara).
-  // door.side = 'N'|'S' → la puerta está en wallN[cy][cx] y abre hacia ese side.
-  // door.side = 'W'|'E' → en wallW[cy][cx].
-  function getDoorOnWallN(cx, cy) {
-    for (const p of props) {
-      if (p.category !== 'door') continue;
-      if (p.cx !== cx || p.cy !== cy) continue;
-      if (p.side === 'N' || p.side === 'S') return p;
-    }
-    return null;
-  }
-  function getDoorOnWallW(cx, cy) {
-    for (const p of props) {
-      if (p.category !== 'door') continue;
-      if (p.cx !== cx || p.cy !== cy) continue;
-      if (p.side === 'W' || p.side === 'E') return p;
-    }
-    return null;
-  }
-
-  // ── 3 niveles de bloqueo de paredes ──
-  // hasWallN/W       → hay segmento físico (incluye sólido, ventanal, ventanita).
-  // blocksSpillN/W   → bloquea spill (flood fill pintura, auto-detección de
-  //                    habitaciones). Todo segmento físico bloquea, incluyendo
-  //                    paredes con puerta-prop encima (la puerta separa).
-  // blocksPathN/W    → bloquea paso de agentes (pathfinding). Todo segmento
-  //                    físico EXCEPTO si tiene puerta-prop encima (los agentes
-  //                    pasan por puertas).
-  function blocksSpillN(cx, cy) {
-    return hasWallN(cx, cy);
-  }
-  function blocksSpillW(cx, cy) {
-    return hasWallW(cx, cy);
-  }
-  function blocksPathN(cx, cy) {
-    if (!hasWallN(cx, cy)) return false;
-    if (getDoorOnWallN(cx, cy)) return false;
-    return true;
-  }
-  function blocksPathW(cx, cy) {
-    if (!hasWallW(cx, cy)) return false;
-    if (getDoorOnWallW(cx, cy)) return false;
-    return true;
-  }
-  // Aliases legacy: blocksWallN/W usaban el style 'door' viejo. Tras migración
-  // ya no debería haber wallStyle === 'door', así que blocks*Path devuelve lo
-  // correcto. Mantengo nombre solo por compat de callers existentes.
-  function blocksWallN(cx, cy) { return blocksPathN(cx, cy); }
-  function blocksWallW(cx, cy) { return blocksPathW(cx, cy); }
-
   // Constantes de doors/windows ahora en src/engine/state.ts.
-  function isCorner(cx, cy) {
-    let hasN = false, hasW = false;
-    if (cx > 0 && hasWallN(cx-1, cy)) hasN = true;
-    if (cx < GRID_W && hasWallN(cx, cy)) hasN = true;
-    if (cy > 0 && hasWallW(cx, cy-1)) hasW = true;
-    if (cy < GRID_H && hasWallW(cx, cy)) hasW = true;
-    return hasN && hasW;
-  }
+  // hasWallN/W, getDoorOnWallN/W, blocksSpillN/W, blocksPathN/W, blocksWallN/W,
+  // isCorner ahora en src/engine/wall-queries.ts (importadas al top del módulo).
 
   // Verdadero si TODAS las paredes que llegan a este corner son ventanas.
   // Se usa para renderizar el post como vidrio (o no renderizarlo) en esos
@@ -1244,50 +1221,7 @@ import {
   }
 
   // ── Flood fill (Shift+click) ──
-  // Compute helpers: dado un start, devuelven el set de celdas/caras a pintar
-  // sin aplicar nada. Los reusa el preview hover (shift hold sin click).
-  function computeFloodFillFloor(startCx, startCy) {
-    const visited = new Set();
-    const out = [];
-    const stack = [[startCx, startCy]];
-    while (stack.length) {
-      const [cx, cy] = stack.pop();
-      if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) continue;
-      const k = `${cx},${cy}`;
-      if (visited.has(k)) continue;
-      visited.add(k);
-      out.push({ cx, cy });
-      // Spill: las puertas separan habitaciones. Auto-detección y shift+click
-      // de pintura tratan a la puerta como pared.
-      if (!blocksSpillN(cx, cy))     stack.push([cx, cy - 1]);
-      if (!blocksSpillN(cx, cy + 1)) stack.push([cx, cy + 1]);
-      if (!blocksSpillW(cx, cy))     stack.push([cx - 1, cy]);
-      if (!blocksSpillW(cx + 1, cy)) stack.push([cx + 1, cy]);
-    }
-    return out;
-  }
-
-  function computeFloodFillRoomFaces(startCx, startCy) {
-    const visited = new Set();
-    const out = [];
-    const stack = [[startCx, startCy]];
-    while (stack.length) {
-      const [cx, cy] = stack.pop();
-      if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) continue;
-      const k = `${cx},${cy}`;
-      if (visited.has(k)) continue;
-      visited.add(k);
-      if (hasWallN(cx, cy))     out.push({ type: 'wallN', cx, cy,         side: 'S' });
-      if (hasWallN(cx, cy + 1)) out.push({ type: 'wallN', cx, cy: cy + 1, side: 'N' });
-      if (hasWallW(cx, cy))     out.push({ type: 'wallW', cx, cy,         side: 'E' });
-      if (hasWallW(cx + 1, cy)) out.push({ type: 'wallW', cx: cx + 1, cy, side: 'W' });
-      if (!blocksSpillN(cx, cy))     stack.push([cx, cy - 1]);
-      if (!blocksSpillN(cx, cy + 1)) stack.push([cx, cy + 1]);
-      if (!blocksSpillW(cx, cy))     stack.push([cx - 1, cy]);
-      if (!blocksSpillW(cx + 1, cy)) stack.push([cx + 1, cy]);
-    }
-    return out;
-  }
+  // computeFloodFillFloor + computeFloodFillRoomFaces ahora viven en src/engine/rooms.ts.
 
   // ══════════════════════════════════════════════════════════════
   //  HABITACIONES CERRADAS (A.4) + ZONAS ABIERTAS (A.5)
@@ -1308,147 +1242,8 @@ import {
   //    Una zona NO se solapa con otra zona (al pintar una celda, si pertenece
   //    a otra zona, se transfiere). Pero sí puede solapar con habitaciones
   //    cerradas (son capas distintas).
-  const ROOM_COLOR_PALETTE = [
-    0x90b8d8, 0xc090c8, 0xd8a878, 0x88c098, 0xd0a0a0,
-    0xa0a8d0, 0xc8c080, 0x80b8b8, 0xd8a8c8, 0xa0c878,
-  ];
-  let _roomColorIdx = 0;
-  function pickRoomColor() {
-    const c = ROOM_COLOR_PALETTE[_roomColorIdx % ROOM_COLOR_PALETTE.length];
-    _roomColorIdx++;
-    return c;
-  }
-
-  // Detecta todos los componentes conexos del grid y devuelve sus celdas.
-  function computeAllRooms() {
-    const visited = new Set();
-    const rooms = [];
-    for (let cy = 0; cy < GRID_H; cy++) {
-      for (let cx = 0; cx < GRID_W; cx++) {
-        const k = `${cx},${cy}`;
-        if (visited.has(k)) continue;
-        const cells = computeFloodFillFloor(cx, cy);
-        for (const c of cells) visited.add(`${c.cx},${c.cy}`);
-        let anchor = cells[0];
-        for (const c of cells) {
-          if (c.cy < anchor.cy || (c.cy === anchor.cy && c.cx < anchor.cx)) anchor = c;
-        }
-        rooms.push({ cells, anchorCx: anchor.cx, anchorCy: anchor.cy });
-      }
-    }
-    return rooms;
-  }
-
-  // Reconcilia metadata con la nueva detección. Conserva nombre + kind + color
-  // de habitaciones cuya anchor previa cae dentro de una habitación nueva.
-  // Habitaciones nuevas sin match heredan color autoasignado y nombre vacío.
-  // Cuando dos habitaciones se fusionan (al romper una pared), gana la primera
-  // detectada (greedy estable) — la otra se pierde.
-  function reconcileRoomMeta() {
-    const detected = computeAllRooms();
-    const oldMeta = worldGrid.roomMeta || [];
-    const usedOldIds = new Set();
-    const newMeta = [];
-    for (const room of detected) {
-      const cellSet = new Set(room.cells.map(c => `${c.cx},${c.cy}`));
-      const prev = oldMeta.find(m =>
-        !usedOldIds.has(m.id) && cellSet.has(`${m.anchorCx},${m.anchorCy}`)
-      );
-      if (prev) {
-        usedOldIds.add(prev.id);
-        newMeta.push({
-          id: prev.id,
-          anchorCx: room.anchorCx,
-          anchorCy: room.anchorCy,
-          name: prev.name || '',
-          kind: prev.kind || null,
-          color: typeof prev.color === 'number' ? prev.color : pickRoomColor(),
-        });
-      } else {
-        newMeta.push({
-          id: uid(),
-          anchorCx: room.anchorCx,
-          anchorCy: room.anchorCy,
-          name: '',
-          kind: null,
-          color: pickRoomColor(),
-        });
-      }
-    }
-    worldGrid.roomMeta = newMeta;
-    eventBus.emit('roomsChanged', { count: newMeta.length });
-  }
-
-  // Devuelve habitaciones cerradas (autodetectadas) con cells + metadata + hasDoor.
-  // Sincroniza worldGrid.roomMeta MUTANDO los objetos in-place — no recrea
-  // refs nuevas, así el panel UI puede mantener punteros estables a cada meta
-  // (los handlers de input editan `entity.name = X` y eso queda persistido).
-  function getRooms() {
-    const detected = computeAllRooms();
-    if (!worldGrid.roomMeta) worldGrid.roomMeta = [];
-    const oldMeta = worldGrid.roomMeta;
-    const usedIds = new Set();
-    const ordered = [];
-    for (const room of detected) {
-      const cellSet = new Set(room.cells.map(c => `${c.cx},${c.cy}`));
-      // Match por anchor: la entrada vieja cuyo anchor cae en este room
-      let m = oldMeta.find(om =>
-        !usedIds.has(om.id) && cellSet.has(`${om.anchorCx},${om.anchorCy}`)
-      );
-      if (m) {
-        usedIds.add(m.id);
-        // Update anchor in-place (puede haber cambiado por flood fill)
-        m.anchorCx = room.anchorCx;
-        m.anchorCy = room.anchorCy;
-      } else {
-        m = {
-          id: uid(),
-          name: '',
-          kind: null,
-          color: pickRoomColor(),
-          anchorCx: room.anchorCx,
-          anchorCy: room.anchorCy,
-        };
-        usedIds.add(m.id);
-      }
-      ordered.push(m);
-    }
-    // Sincronizar worldGrid.roomMeta SIN recrear objetos: clear + push los
-    // mismos refs de `ordered`. Los metas huérfanos quedan fuera, los nuevos
-    // se incluyen, y el orden matchea `detected`.
-    oldMeta.length = 0;
-    for (const m of ordered) oldMeta.push(m);
-    return detected.map((room, i) => {
-      const r = {
-        ...ordered[i],
-        cells: room.cells,
-        anchorCx: room.anchorCx,
-        anchorCy: room.anchorCy,
-      };
-      r.hasDoor = computeRoomHasDoor(r);
-      return r;
-    });
-  }
-
-  // Una habitación "tiene puerta" si alguna de sus celdas tiene un vecino
-  // (fuera del set de la habitación) conectado por un segmento de pared con
-  // door prop. Si la habitación no tiene puerta, está aislada (sólo accesible
-  // a través de paredes que no son atravesables) — útil para gameplay.
-  function computeRoomHasDoor(room) {
-    if (!room.cells || room.cells.length === 0) return false;
-    const cellSet = new Set(room.cells.map(c => `${c.cx},${c.cy}`));
-    for (const c of room.cells) {
-      // Vecino N: wallN[cy][cx] separa
-      if (!cellSet.has(`${c.cx},${c.cy - 1}`) && getDoorOnWallN(c.cx, c.cy)) return true;
-      // Vecino S: wallN[cy+1][cx]
-      if (!cellSet.has(`${c.cx},${c.cy + 1}`) && getDoorOnWallN(c.cx, c.cy + 1)) return true;
-      // Vecino W: wallW[cy][cx]
-      if (!cellSet.has(`${c.cx - 1},${c.cy}`) && getDoorOnWallW(c.cx, c.cy)) return true;
-      // Vecino E: wallW[cy][cx+1]
-      if (!cellSet.has(`${c.cx + 1},${c.cy}`) && getDoorOnWallW(c.cx + 1, c.cy)) return true;
-    }
-    return false;
-  }
+  // ROOM_COLOR_PALETTE + pickRoomColor + computeAllRooms + reconcileRoomMeta
+  // + getRooms + computeRoomHasDoor ahora viven en src/engine/rooms.ts.
 
   // Categorías: las usan tanto habitaciones cerradas como zonas abiertas.
   // El kind solo es un hint para gameplay — la diferencia "cerrada vs abierta"
@@ -1535,27 +1330,7 @@ import {
     lobby:    '👋',
   };
 
-  // Devuelve los props ubicados en cualquiera de las celdas de una zona.
-  function propsInCells(cells) {
-    if (!cells || cells.length === 0) return [];
-    const cellSet = new Set(cells.map(c => `${c.cx},${c.cy}`));
-    const out = [];
-    for (const p of props) {
-      const cat = p.category || 'floor';
-      // wall y door no aportan a requisitos (son estructura, no equipamiento)
-      if (cat === 'wall' || cat === 'door') continue;
-      const w = p.w || 1, d = p.d || 1;
-      // Si CUALQUIER celda del prop intersecta con cells, el prop "está en" la zona
-      let intersects = false;
-      for (let dy = 0; dy < d && !intersects; dy++) {
-        for (let dx = 0; dx < w && !intersects; dx++) {
-          if (cellSet.has(`${p.cx + dx},${p.cy + dy}`)) intersects = true;
-        }
-      }
-      if (intersects) out.push(p);
-    }
-    return out;
-  }
+  // propsInCells ahora vive en src/engine/rooms.ts.
 
   // Chequea si una zona cumple sus requisitos según ROOM_REQUIREMENTS[kind].
   // Devuelve { ok, missing: [{kind, needed, have}], satisfiedBy: {kind: [props]} }.
@@ -1590,31 +1365,7 @@ import {
     return result;
   }
 
-  // Devuelve la PRIMERA zona (cerrada o abierta) que contiene la celda dada.
-  // Si la celda está en habitación cerrada Y zona abierta, prioriza la cerrada.
-  function getZoneAt(cx, cy) {
-    const rooms = getRooms();
-    for (const r of rooms) {
-      if (r.cells.some(c => c.cx === cx && c.cy === cy)) {
-        return { type: 'room', zone: r };
-      }
-    }
-    const zones = getZones();
-    for (const z of zones) {
-      if (z.cells.some(c => c.cx === cx && c.cy === cy)) {
-        return { type: 'zone', zone: z };
-      }
-    }
-    return null;
-  }
-
-  // ── Zonas abiertas ──
-  function getZones() {
-    return (worldGrid.zones || []).map(z => ({
-      ...z,
-      cells: z.cells.map(c => ({ cx: c.cx, cy: c.cy })),
-    }));
-  }
+  // getZoneAt + getZones ahora viven en src/engine/rooms.ts.
   function createZone() {
     const zone = {
       id: uid(),
@@ -3853,6 +3604,8 @@ import {
   scene.background = new THREE.Color(PALETTE.bg);
   initThoughtBubbles(scene);
   initSpeechSystem({ scene, getAgents: () => agents });
+  // initSceneGraph se invoca después de declarar sceneObjects + doorPivotsById
+  // (ver más abajo). const en TDZ no se puede acceder antes de su declaración.
 
   const frustumSize = 700;
   const camera = new THREE.OrthographicCamera(
@@ -3876,85 +3629,14 @@ import {
   const centerX = GRID_W * CELL / 2;
   const centerZ = GRID_H * CELL / 2;
 
-  // Convierte un mesh sólido (devuelto por mkBox) en uno tipo vidrio:
-  // transparent + alta opacidad para que se vea a través, edges sutiles.
-  function makeGlassMesh(mesh) {
-    if (!mesh || !Array.isArray(mesh.material)) return mesh;
-    for (const m of mesh.material) {
-      m.transparent = true;
-      m.opacity = 0.32;
-      m.depthWrite = false;
-    }
-    mesh.renderOrder = 1;
-    if (mesh.userData.edges) {
-      mesh.userData.edges.material.color.setHex(0x4a6878);
-      mesh.userData.edges.material.transparent = true;
-      mesh.userData.edges.material.opacity = 0.6;
-    }
-    return mesh;
-  }
-
-  // ── Box helper ──
-  // Retorna null si las dimensiones son inválidas (NaN, no finitas, o ≤ 0).
-  // Esto evita BoxGeometry inválidos que producen "Computed radius is NaN".
-  // hideFaces opcional: array de '+x','-x','+y','-y','+z','-z' que se ocultan
-  // (útil para evitar overlap de transparencias entre cajas vidrio adyacentes).
-  function mkBox(xmin, ymin, zmin, xmax, ymax, zmax, colors, hideFaces) {
-    const w = xmax - xmin;
-    const h = zmax - zmin;
-    const d = ymax - ymin;
-    if (!isFinite(w) || !isFinite(h) || !isFinite(d) || w <= 0 || h <= 0 || d <= 0) {
-      console.warn('[mkBox] dimensiones inválidas, skip:', { w, h, d, xmin, ymin, zmin, xmax, ymax, zmax });
-      return null;
-    }
-    const geo = new THREE.BoxGeometry(w, h, d);
-
-    // Material array: [+X, -X, +Y, -Y, +Z, -Z]
-    // colors.right/left son los iso colors. Si se pasan pxColor/nxColor/pzColor/
-    // nzColor, esos overridean caras específicas (útil para paredes con caras
-    // pintables: cada lado puede tener un color distinto).
-    const pxC = colors.pxColor !== undefined ? colors.pxColor : colors.right;
-    const nxC = colors.nxColor !== undefined ? colors.nxColor : colors.right;
-    const pzC = colors.pzColor !== undefined ? colors.pzColor : colors.left;
-    const nzC = colors.nzColor !== undefined ? colors.nzColor : colors.left;
-    const mat = [
-      new THREE.MeshBasicMaterial({ color: pxC }),
-      new THREE.MeshBasicMaterial({ color: nxC }),
-      new THREE.MeshBasicMaterial({ color: colors.top }),
-      new THREE.MeshBasicMaterial({ color: colors.top }),
-      new THREE.MeshBasicMaterial({ color: pzC }),
-      new THREE.MeshBasicMaterial({ color: nzC }),
-    ];
-    if (hideFaces && hideFaces.length) {
-      const faceMap = { '+x': 0, '-x': 1, '+y': 2, '-y': 3, '+z': 4, '-z': 5 };
-      for (const face of hideFaces) {
-        const idx = faceMap[face];
-        if (idx !== undefined) mat[idx].visible = false;
-      }
-    }
-
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(
-      (xmin + xmax) / 2 - centerX,
-      (zmin + zmax) / 2,
-      (ymin + ymax) / 2 - centerZ
-    );
-
-    // Edges (strokes)
-    const edges = new THREE.EdgesGeometry(geo);
-    const lineMat = new THREE.LineBasicMaterial({ color: PALETTE.edge });
-    const line = new THREE.LineSegments(edges, lineMat);
-    line.visible = showStrokes;
-    mesh.add(line);
-    mesh.userData.edges = line;
-
-    return mesh;
-  }
+  // mkBox + makeGlassMesh ahora viven en src/engine/three-primitives.ts.
 
   const sceneObjects = [];
   // Map door.id → pivot Object3D, repoblado cada buildScene. Lo usa
   // updateDoorAnimations para encontrar el pivot a rotar sin barrer sceneObjects.
   const doorPivotsById = new Map();
+  // Wire del scene-graph singleton del engine ahora que las refs están listas.
+  initSceneGraph({ scene, sceneObjects, doorPivotsById });
 
   // ══════════════════════════════════════════════════════════════
   //  TECHO (roof) — toggle global con detalles arriba (terraza) y abajo (cielorraso)
@@ -4533,325 +4215,35 @@ import {
     }
   }
 
-  function clearScene() {
-    for (const obj of sceneObjects) {
-      scene.remove(obj);
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
-        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-        else obj.material.dispose();
-      }
-      if (obj.userData && obj.userData.edges) {
-        obj.userData.edges.geometry.dispose();
-        obj.userData.edges.material.dispose();
-      }
-    }
-    sceneObjects.length = 0;
-    doorPivotsById.clear();
-  }
+  // clearScene ahora vive en src/engine/scene-graph.ts. Wrapper local para no
+  // tocar callsites:
+  const clearScene = engineClearScene;
 
   // ══════════════════════════════════════════════════════════════
   //  WALL BUILDERS — uno por estilo × orientación
   // ══════════════════════════════════════════════════════════════
   // Cada helper construye la geometría de UNA celda de pared del estilo dado.
   // Se llaman desde el bucle de buildScene().
-  function buildSolidWallN(cx, cy, h) {
-    const shrinkW = isCorner(cx, cy) ? halfT : 0;
-    const shrinkE = isCorner(cx + 1, cy) ? halfT : 0;
-    const xmin = cx * CELL + shrinkW;
-    const xmax = (cx + 1) * CELL - shrinkE;
-    const ymin = cy * CELL - halfT;
-    const ymax = cy * CELL + halfT;
-    const paint = (worldGrid.wallNColors && worldGrid.wallNColors[cy][cx]) || null;
-    const colors = {
-      top: PALETTE.wallN.top, right: PALETTE.wallN.right, left: PALETTE.wallN.left,
-      // +Z = cara sur (visible desde cy). -Z = cara norte (visible desde cy-1).
-      pzColor: paint && paint.S !== undefined ? paint.S : PALETTE.wallN.left,
-      nzColor: paint && paint.N !== undefined ? paint.N : PALETTE.wallN.left,
-    };
-    const mesh = mkBox(xmin, ymin, 0, xmax, ymax, h, colors);
-    if (mesh) {
-      mesh.userData.wallFace = { type: 'wallN', cx, cy };
-      scene.add(mesh); sceneObjects.push(mesh);
-    }
-  }
 
-  function buildSolidWallW(cx, cy, h) {
-    const shrinkN = isCorner(cx, cy) ? halfT : 0;
-    const shrinkS = isCorner(cx, cy + 1) ? halfT : 0;
-    const xmin = cx * CELL - halfT;
-    const xmax = cx * CELL + halfT;
-    const ymin = cy * CELL + shrinkN;
-    const ymax = (cy + 1) * CELL - shrinkS;
-    const paint = (worldGrid.wallWColors && worldGrid.wallWColors[cy][cx]) || null;
-    const colors = {
-      top: PALETTE.wallW.top, right: PALETTE.wallW.right, left: PALETTE.wallW.left,
-      // +X = cara este (visible desde cx). -X = cara oeste (visible desde cx-1).
-      pxColor: paint && paint.E !== undefined ? paint.E : PALETTE.wallW.right,
-      nxColor: paint && paint.W !== undefined ? paint.W : PALETTE.wallW.right,
-    };
-    const mesh = mkBox(xmin, ymin, 0, xmax, ymax, h, colors);
-    if (mesh) {
-      mesh.userData.wallFace = { type: 'wallW', cx, cy };
-      scene.add(mesh); sceneObjects.push(mesh);
-    }
-  }
 
   // Ventana pequeña: sólido bajo (sill) + vidrio medio + sólido alto (lintel).
   // Soporta runs de celdas adyacentes (cx..endCx) para evitar el solape de
   // vidrios entre celdas. Cada celda dentro del run sigue siendo pintable
   // como cara individual (mesh.userData.wallFace por celda).
   // Si la pared es muy baja (cutaway zócalo), cae a sólido normal por celda.
-  function buildWindowHalfRunN(cx, endCx, cy, h) {
-    if (h < WIN_HALF_SILL_H + WIN_HALF_GLASS_H + 10) {
-      // Cutaway: render sólido por celda
-      for (let i = cx; i < endCx; i++) buildSolidWallN(i, cy, h);
-      return;
-    }
-    const shrinkW = isCorner(cx, cy) ? halfT : 0;
-    const shrinkE = isCorner(endCx, cy) ? halfT : 0;
-    const xmin = cx * CELL + shrinkW;
-    const xmax = endCx * CELL - shrinkE;
-    const ymin = cy * CELL - halfT;
-    const ymax = cy * CELL + halfT;
-    // Sill (abajo) — una caja contínua, pero un mesh per-celda para que cada
-    // celda sea pintable individualmente. Igual con lintel.
-    for (let i = cx; i < endCx; i++) {
-      const sw = (i === cx) ? shrinkW : 0;
-      const se = (i === endCx - 1) ? shrinkE : 0;
-      const cellXmin = i * CELL + sw;
-      const cellXmax = (i + 1) * CELL - se;
-      const paint = (worldGrid.wallNColors && worldGrid.wallNColors[cy][i]) || null;
-      const colors = {
-        top: PALETTE.wallN.top, right: PALETTE.wallN.right, left: PALETTE.wallN.left,
-        pzColor: paint && paint.S !== undefined ? paint.S : PALETTE.wallN.left,
-        nzColor: paint && paint.N !== undefined ? paint.N : PALETTE.wallN.left,
-      };
-      const sill = mkBox(cellXmin, ymin, 0, cellXmax, ymax, WIN_HALF_SILL_H, colors);
-      if (sill) {
-        sill.userData.wallFace = { type: 'wallN', cx: i, cy };
-        scene.add(sill); sceneObjects.push(sill);
-      }
-      const lintel = mkBox(cellXmin, ymin, WIN_HALF_SILL_H + WIN_HALF_GLASS_H, cellXmax, ymax, h, colors);
-      if (lintel) {
-        lintel.userData.wallFace = { type: 'wallN', cx: i, cy };
-        scene.add(lintel); sceneObjects.push(lintel);
-      }
-    }
-    // Glass: una sola caja larga (esto es lo que evita el solape).
-    const glass = mkBox(
-      xmin, ymin, WIN_HALF_SILL_H,
-      xmax, ymax, WIN_HALF_SILL_H + WIN_HALF_GLASS_H,
-      PALETTE.glass
-    );
-    if (glass) {
-      makeGlassMesh(glass);
-      // Marcar como wall face del primer cx — id estable para ocultar/mostrar.
-      // El glass cubre el run [cx, endCx), pero usamos cx como anchor.
-      glass.userData.wallFace = { type: 'wallN', cx, cy };
-      glass.userData.isGlass = true;
-      scene.add(glass); sceneObjects.push(glass);
-    }
-  }
 
-  function buildWindowHalfRunW(cx, cy, endCy, h) {
-    if (h < WIN_HALF_SILL_H + WIN_HALF_GLASS_H + 10) {
-      for (let j = cy; j < endCy; j++) buildSolidWallW(cx, j, h);
-      return;
-    }
-    const shrinkN = isCorner(cx, cy) ? halfT : 0;
-    const shrinkS = isCorner(cx, endCy) ? halfT : 0;
-    const xmin = cx * CELL - halfT;
-    const xmax = cx * CELL + halfT;
-    const ymin = cy * CELL + shrinkN;
-    const ymax = endCy * CELL - shrinkS;
-    for (let j = cy; j < endCy; j++) {
-      const sn = (j === cy) ? shrinkN : 0;
-      const ss = (j === endCy - 1) ? shrinkS : 0;
-      const cellYmin = j * CELL + sn;
-      const cellYmax = (j + 1) * CELL - ss;
-      const paint = (worldGrid.wallWColors && worldGrid.wallWColors[j][cx]) || null;
-      const colors = {
-        top: PALETTE.wallW.top, right: PALETTE.wallW.right, left: PALETTE.wallW.left,
-        pxColor: paint && paint.E !== undefined ? paint.E : PALETTE.wallW.right,
-        nxColor: paint && paint.W !== undefined ? paint.W : PALETTE.wallW.right,
-      };
-      const sill = mkBox(xmin, cellYmin, 0, xmax, cellYmax, WIN_HALF_SILL_H, colors);
-      if (sill) {
-        sill.userData.wallFace = { type: 'wallW', cx, cy: j };
-        scene.add(sill); sceneObjects.push(sill);
-      }
-      const lintel = mkBox(xmin, cellYmin, WIN_HALF_SILL_H + WIN_HALF_GLASS_H, xmax, cellYmax, h, colors);
-      if (lintel) {
-        lintel.userData.wallFace = { type: 'wallW', cx, cy: j };
-        scene.add(lintel); sceneObjects.push(lintel);
-      }
-    }
-    const glass = mkBox(
-      xmin, ymin, WIN_HALF_SILL_H,
-      xmax, ymax, WIN_HALF_SILL_H + WIN_HALF_GLASS_H,
-      PALETTE.glass
-    );
-    if (glass) {
-      makeGlassMesh(glass);
-      glass.userData.wallFace = { type: 'wallW', cx, cy };
-      glass.userData.isGlass = true;
-      scene.add(glass); sceneObjects.push(glass);
-    }
-  }
 
-  // Templates de puerta — kind define material/color del panel.
-  const DOOR_TEMPLATES = {
-    'wood':   { name: 'Puerta de madera', panel: { top: 0x8a5a30, right: 0x6a4220, left: 0x4a2a10 }, frame: { top: 0x70401c, right: 0x50300c, left: 0x301800 } },
-    'modern': { name: 'Puerta moderna',   panel: { top: 0xd0d0d0, right: 0xa0a0a0, left: 0x808080 }, frame: { top: 0x404040, right: 0x303030, left: 0x202020 } },
-    'glass':  { name: 'Puerta de vidrio', panel: null /* glass mesh */,                                frame: { top: 0xa8a890, right: 0x808070, left: 0x606050 } },
-  };
-  function doorTpl(kind) { return DOOR_TEMPLATES[kind] || DOOR_TEMPLATES.wood; }
+  // DOOR_TEMPLATES + doorTpl ahora en src/engine/door-panels.ts.
 
   // Pared sólida con puerta encima: dintel arriba (igual que el style door
   // viejo), abajo libre, y un panel rotatorio dentro del hueco.
-  function buildSolidWallNWithDoor(cx, cy, h, doorProp) {
-    if (h < DOOR_OPENING_H + 15) {
-      // Cutaway zócalo: render como sólido (no hay espacio para puerta visual)
-      buildSolidWallN(cx, cy, h);
-      return;
-    }
-    const shrinkW = isCorner(cx, cy) ? halfT : 0;
-    const shrinkE = isCorner(cx + 1, cy) ? halfT : 0;
-    const xmin = cx * CELL + shrinkW;
-    const xmax = (cx + 1) * CELL - shrinkE;
-    const ymin = cy * CELL - halfT;
-    const ymax = cy * CELL + halfT;
-    const paint = (worldGrid.wallNColors && worldGrid.wallNColors[cy][cx]) || null;
-    const colors = {
-      top: PALETTE.wallN.top, right: PALETTE.wallN.right, left: PALETTE.wallN.left,
-      pzColor: paint && paint.S !== undefined ? paint.S : PALETTE.wallN.left,
-      nzColor: paint && paint.N !== undefined ? paint.N : PALETTE.wallN.left,
-    };
-    // Dintel arriba
-    const lintel = mkBox(xmin, ymin, DOOR_OPENING_H, xmax, ymax, h, colors);
-    if (lintel) {
-      lintel.userData.wallFace = { type: 'wallN', cx, cy };
-      scene.add(lintel); sceneObjects.push(lintel);
-    }
-    // Panel de la puerta
-    addDoorPanelN(cx, cy, doorProp, xmin, xmax, ymin, ymax);
-  }
 
-  function buildSolidWallWWithDoor(cx, cy, h, doorProp) {
-    if (h < DOOR_OPENING_H + 15) {
-      buildSolidWallW(cx, cy, h);
-      return;
-    }
-    const shrinkN = isCorner(cx, cy) ? halfT : 0;
-    const shrinkS = isCorner(cx, cy + 1) ? halfT : 0;
-    const xmin = cx * CELL - halfT;
-    const xmax = cx * CELL + halfT;
-    const ymin = cy * CELL + shrinkN;
-    const ymax = (cy + 1) * CELL - shrinkS;
-    const paint = (worldGrid.wallWColors && worldGrid.wallWColors[cy][cx]) || null;
-    const colors = {
-      top: PALETTE.wallW.top, right: PALETTE.wallW.right, left: PALETTE.wallW.left,
-      pxColor: paint && paint.E !== undefined ? paint.E : PALETTE.wallW.right,
-      nxColor: paint && paint.W !== undefined ? paint.W : PALETTE.wallW.right,
-    };
-    const lintel = mkBox(xmin, ymin, DOOR_OPENING_H, xmax, ymax, h, colors);
-    if (lintel) {
-      lintel.userData.wallFace = { type: 'wallW', cx, cy };
-      scene.add(lintel); sceneObjects.push(lintel);
-    }
-    addDoorPanelW(cx, cy, doorProp, xmin, xmax, ymin, ymax);
-  }
 
   // DOOR_PANEL_THICK ahora en src/engine/state.ts.
 
-  // Helper: panel mesh local (NO usa mkBox para evitar el offset de centerX/Z).
-  // El mesh se posiciona en coords locales del pivot.
-  // axis='X' → BoxGeometry(length, height, thickness) (panel a lo largo de X)
-  // axis='Z' → BoxGeometry(thickness, height, length) (panel a lo largo de Z)
-  function makeDoorPanelMesh(length, height, kind, axis) {
-    const tpl = doorTpl(kind);
-    let geo;
-    if (axis === 'X') geo = new THREE.BoxGeometry(length, height, DOOR_PANEL_THICK);
-    else              geo = new THREE.BoxGeometry(DOOR_PANEL_THICK, height, length);
-    let mat;
-    if (!tpl.panel) {
-      // Glass
-      mat = new THREE.MeshBasicMaterial({
-        color: 0xa8d0e0, transparent: true, opacity: 0.35, depthWrite: false,
-      });
-    } else {
-      const c = tpl.panel;
-      // Material order: [+X, -X, +Y, -Y, +Z, -Z]
-      mat = [
-        new THREE.MeshBasicMaterial({ color: c.right }),
-        new THREE.MeshBasicMaterial({ color: c.right }),
-        new THREE.MeshBasicMaterial({ color: c.top }),
-        new THREE.MeshBasicMaterial({ color: c.top }),
-        new THREE.MeshBasicMaterial({ color: c.left }),
-        new THREE.MeshBasicMaterial({ color: c.left }),
-      ];
-    }
-    const mesh = new THREE.Mesh(geo, mat);
-    // Edges
-    const edges = new THREE.EdgesGeometry(geo);
-    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: PALETTE.edge }));
-    line.visible = showStrokes;
-    mesh.add(line);
-    return mesh;
-  }
+  // makeDoorPanelMesh ahora en src/engine/door-panels.ts.
 
-  function addDoorPanelN(cx, cy, door, xmin, xmax, ymin, ymax) {
-    const panelWidth = (xmax - xmin) - 4;
-    const panelHeight = DOOR_OPENING_H - 4;
-    const panel = makeDoorPanelMesh(panelWidth, panelHeight, door.kind, 'X');
-    // Coords LOCALES del pivot. El pivot está en el borde xmin (bisagra),
-    // plano zMid, y=0 (piso). El panel se extiende desde la bisagra hacia +X.
-    panel.position.set(panelWidth / 2, panelHeight / 2, 0);
-    // Tag para selección/raycast (necesario para que click + Delete funcionen)
-    panel.userData.prop = door;
-    panel.userData.doorPanel = { propId: door.id };
-    const pivot = new THREE.Object3D();
-    const zMid = (ymin + ymax) / 2;
-    // Coords de MUNDO centradas para el pivot (igual que cualquier mesh top-level).
-    pivot.position.set((xmin + 2) - centerX, 0, zMid - centerZ);
-    pivot.add(panel);
-    const openness = door.openness || 0;
-    // side='N' → abre hacia -Z. side='S' → abre hacia +Z.
-    const direction = (door.side === 'N') ? -1 : 1;
-    pivot.rotation.y = direction * openness * (Math.PI / 2);
-    pivot.userData.doorPanel = { propId: door.id };
-    pivot.userData.doorDirection = direction;
-    scene.add(pivot);
-    sceneObjects.push(pivot);
-    sceneObjects.push(panel);   // raycast hits el panel; clearScene lo dispone
-    doorPivotsById.set(door.id, pivot);
-  }
 
-  function addDoorPanelW(cx, cy, door, xmin, xmax, ymin, ymax) {
-    const panelLength = (ymax - ymin) - 4;
-    const panelHeight = DOOR_OPENING_H - 4;
-    const panel = makeDoorPanelMesh(panelLength, panelHeight, door.kind, 'Z');
-    // Pivot en el borde ymin (bisagra norte), plano xMid, y=0.
-    // El panel se extiende desde la bisagra hacia +Z.
-    panel.position.set(0, panelHeight / 2, panelLength / 2);
-    panel.userData.prop = door;
-    panel.userData.doorPanel = { propId: door.id };
-    const pivot = new THREE.Object3D();
-    const xMid = (xmin + xmax) / 2;
-    pivot.position.set(xMid - centerX, 0, (ymin + 2) - centerZ);
-    pivot.add(panel);
-    const openness = door.openness || 0;
-    // side='W' → abre hacia -X. side='E' → abre hacia +X.
-    const direction = (door.side === 'W') ? -1 : 1;
-    pivot.rotation.y = direction * openness * (Math.PI / 2);
-    pivot.userData.doorPanel = { propId: door.id };
-    pivot.userData.doorDirection = direction;
-    scene.add(pivot);
-    sceneObjects.push(pivot);
-    sceneObjects.push(panel);
-    doorPivotsById.set(door.id, pivot);
-  }
 
   function buildScene() {
     clearScene();
