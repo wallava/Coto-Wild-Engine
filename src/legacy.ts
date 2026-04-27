@@ -63,6 +63,19 @@ import {
   writeAllSavedCutscenes,
 } from './cutscene/persistence';
 import {
+  ensureSceneConsistency as cutsceneEnsureSceneConsistency,
+  computeSceneView as cutsceneComputeSceneView,
+  sceneAt as cutsceneSceneAt,
+  newSceneId as cutsceneNewSceneId,
+  ensureScenesInModel as cutsceneEnsureScenesInModel,
+  migrateKfsToScenes as cutsceneMigrateKfsToScenes,
+} from './cutscene/scenes';
+import {
+  inheritanceChain as cutsceneInheritanceChain,
+  lastKfWithInheritance as cutsceneLastKfWithInheritance,
+  kfIsVisible as cutsceneKfIsVisible,
+} from './cutscene/inheritance';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -3329,152 +3342,26 @@ import { formatRelTime } from './utils/format';
   // - Los kfs viven en el timeline absoluto. Caen en algún plano según su t.
   // - Si un kf cae fuera de cualquier plano (zona muerta) → no se reproduce.
 
-  function ceNewSceneId() { return 'sc_' + Math.random().toString(36).slice(2, 8); }
+  function ceNewSceneId() { return cutsceneNewSceneId(); }
 
   // Devuelve los planos ordenados por tStart. Si el modelo está vacío,
   // crea automáticamente un plano default cubriendo toda la duración
   // (defensa de último recurso para evitar pantalla negra total).
   function ceComputeScenes() {
-    if (!ceState.cutscene.scenes) ceState.cutscene.scenes = [];
-    if (ceState.cutscene.scenes.length === 0) {
-      ceState.cutscene.scenes.push({
-        id: ceNewSceneId(),
-        tStart: 0,
-        tEnd: ceState.cutscene.duration,
-        name: '',
-        inheritState: false,
-      });
-    }
-    const sorted = ceState.cutscene.scenes
-      .slice()
-      .sort((a, b) => a.tStart - b.tStart);
-    // ── Defensivo: el primer plano por tStart no puede heredar (no hay nada antes) ──
-    if (sorted.length > 0 && sorted[0].inheritState) {
-      sorted[0].inheritState = false;
-      sorted[0].escenaRootId = sorted[0].id;
-    }
-    // ── Asegurar consistencia de escenaRootId ──
-    // (defensivo: si algún plano lo perdió, regenerarlo)
-    {
-      let currentRoot = null;
-      for (const sc of sorted) {
-        if (!sc.inheritState) {
-          currentRoot = sc.id;
-          if (sc.escenaRootId !== sc.id) sc.escenaRootId = sc.id;
-        } else if (!sc.escenaRootId) {
-          sc.escenaRootId = currentRoot || sc.id;
-        }
-      }
-    }
-    // ── Asignar sceneNum (por escenaRootId, en orden de primera aparición temporal) ──
-    const rootToSceneNum = new Map();
-    let nextSceneNum = 0;
-    for (const sc of sorted) {
-      const root = sc.escenaRootId || sc.id;
-      if (!rootToSceneNum.has(root)) {
-        nextSceneNum++;
-        rootToSceneNum.set(root, nextSceneNum);
-      }
-    }
-    // ── Asignar planoNum dentro de cada escena (por orden temporal entre planos del mismo root) ──
-    const planoCounter = new Map();
-    return sorted.map((sc, i) => {
-      const root = sc.escenaRootId || sc.id;
-      const sceneNum = rootToSceneNum.get(root);
-      const planoNum = (planoCounter.get(root) || 0) + 1;
-      planoCounter.set(root, planoNum);
-      return {
-        ...sc,
-        idx: i,
-        duration: sc.tEnd - sc.tStart,
-        sceneNum,
-        planoNum,
-        displayName: sc.name && sc.name.trim() ? sc.name : `Plano ${planoNum}`,
-      };
-    });
+    cutsceneEnsureSceneConsistency(ceState.cutscene);
+    return cutsceneComputeSceneView(ceState.cutscene);
   }
 
   // Migración: si la cutscene no tiene scenes en el modelo, generarlas
   // desde los cuts del track de cámara (compatibilidad con cutscenes viejas).
   function ceEnsureScenesInModel() {
-    if (!ceState.cutscene.scenes || ceState.cutscene.scenes.length === 0) {
-      const cam = ceState.cutscene.camera;
-      const dur = ceState.cutscene.duration;
-      const cutTimes = [0];
-      for (const kf of (cam.keyframes || [])) {
-        if (kf.cut && kf.t > 0.001 && kf.t < dur - 0.001) {
-          if (!cutTimes.some(t => Math.abs(t - kf.t) < 0.05)) cutTimes.push(kf.t);
-        }
-      }
-      cutTimes.sort((a, b) => a - b);
-      const scenes = [];
-      const namesMap = (ceState.cutscene.sceneNames) || {};
-      for (let i = 0; i < cutTimes.length; i++) {
-        const tStart = cutTimes[i];
-        const tEnd = (i < cutTimes.length - 1) ? cutTimes[i + 1] : dur;
-        const nameKey = tStart.toFixed(2);
-        scenes.push({
-          id: ceNewSceneId(),
-          tStart, tEnd,
-          name: namesMap[nameKey] || '',
-          inheritState: i > 0,
-        });
-      }
-      if (scenes.length === 0) {
-        scenes.push({ id: ceNewSceneId(), tStart: 0, tEnd: dur, name: '', inheritState: false });
-      }
-      ceState.cutscene.scenes = scenes;
-    }
-    // Asegurar que cada plano tenga inheritState (default true salvo el primero por tStart)
-    {
-      const sorted = (ceState.cutscene.scenes || []).slice().sort((a, b) => a.tStart - b.tStart);
-      for (let i = 0; i < sorted.length; i++) {
-        if (sorted[i].inheritState === undefined) sorted[i].inheritState = (i > 0);
-      }
-    }
-    // ── escenaRootId: identifica el grupo "escena" de cada plano de manera estable ──
-    // Inherit=false → este plano es root: escenaRootId = self.id.
-    // Inherit=true → escenaRootId del plano anterior temporalmente (al momento de creación).
-    // Una vez asignado, NO cambia al mover el plano (la escena es identidad estable,
-    // no derivada del orden temporal actual).
-    {
-      const sorted = (ceState.cutscene.scenes || []).slice().sort((a, b) => a.tStart - b.tStart);
-      let currentRoot = null;
-      for (const sc of sorted) {
-        if (!sc.inheritState) {
-          currentRoot = sc.id;
-          if (!sc.escenaRootId) sc.escenaRootId = sc.id;
-        } else {
-          if (!sc.escenaRootId) sc.escenaRootId = currentRoot || sc.id;
-        }
-        // Mantener consistencia: si inherit=false, root es siempre self
-        if (!sc.inheritState && sc.escenaRootId !== sc.id) sc.escenaRootId = sc.id;
-      }
-    }
-    ceMigrateKfsToScenes();
+    cutsceneEnsureScenesInModel(ceState.cutscene);
   }
 
   // Iterar todos los kfs (cámara, walls, fx, agentes) y asignarles sceneId
   // si no lo tienen (kfs viejos pre-modelo).
   function ceMigrateKfsToScenes() {
-    const ownerOf = (t) => {
-      const sc = (ceState.cutscene.scenes || []).find(s => t >= s.tStart - 0.001 && t < s.tEnd - 0.001);
-      return sc ? sc.id : null;
-    };
-    const fix = (kf) => { if (kf.sceneId === undefined) kf.sceneId = ownerOf(kf.t); };
-    const cam = ceState.cutscene.camera;
-    if (cam && cam.keyframes) cam.keyframes.forEach(fix);
-    if (ceState.cutscene.walls && ceState.cutscene.walls.keyframes) {
-      ceState.cutscene.walls.keyframes.forEach(fix);
-    }
-    if (ceState.cutscene.fx && ceState.cutscene.fx.entities) {
-      for (const ent of ceState.cutscene.fx.entities) {
-        if (ent.keyframes) ent.keyframes.forEach(fix);
-      }
-    }
-    for (const tr of (ceState.cutscene.tracks || [])) {
-      if (tr.keyframes) tr.keyframes.forEach(fix);
-    }
+    cutsceneMigrateKfsToScenes(ceState.cutscene);
   }
 
   // Asigna sceneId a un kf según el plano que contiene su t (si lo hay).
@@ -3514,11 +3401,7 @@ import { formatRelTime } from './utils/format';
   // Buscar el plano que contiene t (o null si t cae en gap).
   // Si hay solapamientos, devuelve el primero que contenga t (menor tStart).
   function ceSceneAt(t) {
-    const scenes = ceComputeScenes();
-    for (const sc of scenes) {
-      if (t >= sc.tStart && t < sc.tEnd) return sc;
-    }
-    return null;
+    return cutsceneSceneAt(ceState.cutscene, t);
   }
 
   // Inserta un cut en t (corte tijera). Divide el plano que contiene t en 2
@@ -4396,10 +4279,7 @@ import { formatRelTime } from './utils/format';
   // acortó dejándolo afuera, el kf existe en el array pero no se muestra
   // (queda dormido hasta que la scene se extienda o vuelva).
   function ceKfIsVisible(kf) {
-    if (kf.sceneId === undefined || kf.sceneId === null) return true;   // legacy
-    const sc = (ceState.cutscene.scenes || []).find(s => s.id === kf.sceneId);
-    if (!sc) return false;
-    return kf.t >= sc.tStart - 0.001 && kf.t < sc.tEnd + 0.001;
+    return cutsceneKfIsVisible(kf, ceComputeScenes());
   }
 
   function ceRenderTracks() {
@@ -4791,34 +4671,13 @@ import { formatRelTime } from './utils/format';
   // pertenece a Escena 1 hereda solo de planos de Escena 1, aunque otros
   // planos de Escena 2 estén intercalados en el timeline.
   function ceInheritanceChain(scene) {
-    if (!scene) return [];
-    const all = ceComputeScenes();
-    const chain = [scene];
-    if (!scene.inheritState) return chain;   // escena root, no hereda
-    const root = scene.escenaRootId || scene.id;
-    // Planos anteriores con MISMO escenaRootId, ordenados de más reciente a más antiguo
-    const sameScene = all
-      .filter(s => s.id !== scene.id && s.tStart < scene.tStart && (s.escenaRootId || s.id) === root)
-      .sort((a, b) => b.tStart - a.tStart);
-    for (const sc of sameScene) chain.push(sc);
-    return chain;
+    return cutsceneInheritanceChain(ceState.cutscene, scene);
   }
 
   // Último kf efectivo (incl. herencia) cuyo t <= playhead.
   // Si no hay kfs en el plano actual, busca en planos anteriores de la cadena.
   function ceLastKfWithInheritance(kfs, scene, playhead) {
-    if (!scene) return null;
-    const chain = ceInheritanceChain(scene);
-    const chainIds = new Set(chain.map(s => s.id));
-    const candidates = (kfs || []).filter(k => {
-      if (k.sceneId === undefined || k.sceneId === null) {
-        return chain.some(s => k.t >= s.tStart && k.t < s.tEnd) && k.t <= playhead + 0.001;
-      }
-      return chainIds.has(k.sceneId) && k.t <= playhead + 0.001;
-    });
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.t - b.t);
-    return candidates[candidates.length - 1];
+    return cutsceneLastKfWithInheritance(kfs, scene, playhead, ceComputeScenes());
   }
 
   function ceComputeWallStateAt(t) {
