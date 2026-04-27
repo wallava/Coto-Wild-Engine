@@ -66,6 +66,35 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 14:25 - [FASE 3 INTERACTIVA] R2 validation cutscene + tests schema (paralelo)
+
+**Plan inicial**: Claude agrega validateCutscene helper a cutscene/persistence.ts. Codex en background genera tests Vitest para cutscene/schema.ts.
+
+**Review loop con Codex**: 1 round.
+- 0 bloqueantes, 5 sugerencias todas aceptadas:
+  1. validateCutscene puro (no llama normalize). Documentar legacy fx.keyframes falla.
+  2. Sin cast `as Cutscene` (z.infer ya da el tipo).
+  3. Test explícito de passthrough preservando extras.
+  4. it.todo para comportamiento sin paridad.
+  5. Tests con summary (no verbose).
+
+**Tasks**:
+
+### CLAUDE-R2: validateCutscene en cutscene/persistence.ts
+- Helper `validateCutscene(raw): {ok, value} | {ok, error}` con safeParse + log estructurado de issues.
+- Comentario advirtiendo cutscenes legacy con fx.keyframes fallarán hasta R4 migrations.
+- Sin integración con loadCutsceneByName (queda para R4).
+
+### CODEX-R2: tests schema cutscene (delegated)
+- Codex session: adf27c3ff7b7f876f (background, completed).
+- 29 tests nuevos en 10 describe (tests/cutscene/schema.test.ts).
+- Cubre: SceneSchema (4), CameraKfSchema, FxTargetSchema (incl agent-sin-id refine), AgentKfSchema, FxEntitySchema, CutsceneSchema integración, passthrough preserva extras explícito.
+
+**Validación**: tsc ✅, smoke-test ✅, npm test 45/45 ✅ (16 inheritance + 29 schema).
+**Status**: ✅ Done. Sin validación visual (sin wiring runtime).
+
+---
+
 ## 2026-04-27 14:15 - [FASE 3 INTERACTIVA] R1 schemas Zod (paralelo Claude+Codex)
 
 **Plan inicial**: 2 archivos paralelos. Claude crea cutscene/schema.ts; Codex en background crea engine/schema.ts.

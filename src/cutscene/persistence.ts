@@ -3,7 +3,9 @@
 // normalización del modelo guardado. Las mutaciones de migración son explícitas
 // para que el editor pueda aplicarlas antes de tocar lifecycle/UI.
 
+import type { z } from 'zod';
 import type { Cutscene } from './model';
+import { CutsceneSchema, type Cutscene as CutsceneValidated } from './schema';
 
 const CUTSCENES_STORAGE_KEY = 'agentsinc_cutscenes_v1';
 
@@ -145,4 +147,37 @@ export function normalizeCutsceneData(data: CutsceneData): void {
   data.sceneNames = isRecord(data.sceneNames) ? data.sceneNames : {};
   data.scenes = Array.isArray(data.scenes) ? data.scenes : [];
   data.agents = Array.isArray(data.agents) ? data.agents : [];
+}
+
+// ── Validation ──────────────────────────────────────────────────────
+
+export type ValidationResult =
+  | { ok: true; value: CutsceneValidated }
+  | { ok: false; error: z.ZodError };
+
+/**
+ * Valida `raw` contra `CutsceneSchema`. NO aplica `normalizeCutsceneData`
+ * — el caller decide qué hacer si falla (usar default, intentar migration,
+ * abortar).
+ *
+ * NOTA: cutscenes legacy con modelo viejo (`fx.keyframes` en vez de
+ * `fx.entities`, kfs sin `type`, etc.) van a fallar acá. La integración
+ * con migration vendrá en R4.
+ *
+ * Si pasa: `{ok: true, value}` con tipos garantizados.
+ * Si falla: log estructurado + `{ok: false, error}`.
+ */
+export function validateCutscene(raw: unknown): ValidationResult {
+  const result = CutsceneSchema.safeParse(raw);
+  if (result.success) {
+    return { ok: true, value: result.data };
+  }
+  console.warn('[cutscene/validate]', {
+    issues: result.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      code: i.code,
+      message: i.message,
+    })),
+  });
+  return { ok: false, error: result.error };
 }
