@@ -82,6 +82,8 @@ import {
   getNearestEdgeFromPoint,
   findNearestPlaceableWallFace,
   findNearestWallSegment,
+  pathFirstExists,
+  pathBlocksOnFurniture,
 } from './engine/wall-queries';
 import { mkBox, makeGlassMesh, setStrokesGetter } from './engine/three-primitives';
 import { DOOR_TEMPLATES, doorTpl, makeDoorPanelMesh } from './engine/door-panels';
@@ -197,6 +199,10 @@ import { initRoomsPanel, renderRoomsList } from './ui/rooms-panel';
 import { initPaintPanel, syncPaintUI, setOnColorChange as setOnPaintColorChange } from './ui/paint-panel';
 import { buildFloor } from './engine/floor-render';
 import { isBlockedByProp, neighbors, findPath } from './engine/pathfinding';
+import {
+  isAgentAt,
+  setAgentsGetter as setAgentsStateGetter,
+} from './engine/agents-state';
 import { getMinCellsForZones, setMinCellsForZones } from './engine/zone-config';
 import {
   wallHeightForN as engineWallHeightForN,
@@ -494,9 +500,7 @@ import { formatRelTime } from './utils/format';
 
   // getCandidateWallSlots ahora en src/engine/wall-queries.ts.
 
-  function isAgentAt(cx, cy) {
-    return agents.some(a => a.cx === cx && a.cy === cy);
-  }
+  // isAgentAt ahora en src/engine/agents-state.ts.
 
   function spawnRandomProp() {
     // 25% de probabilidad: intentar wall prop (cuadro). Si no hay paredes
@@ -1214,33 +1218,7 @@ import { formatRelTime } from './utils/format';
     wallHoverMesh = null;
   }
 
-  function pathFirstExists(path) {
-    if (!path.length) return false;
-    const w = path[0];
-    return w.type === 'wallN' ? !!worldGrid.wallN[w.cy][w.cx] : !!worldGrid.wallW[w.cy][w.cx];
-  }
-
-  // En modo build, devuelve true si alguna pared del path partiría un mueble
-  // multi-celda (2x1 / 1x2). En modo erase devuelve false (eliminar siempre OK).
-  function pathBlocksOnFurniture(path, isErase) {
-    if (isErase) return false;
-    for (const w of path) {
-      const exists = w.type === 'wallN' ? worldGrid.wallN[w.cy][w.cx] : worldGrid.wallW[w.cy][w.cx];
-      if (exists) continue;
-      if (w.type === 'wallN') {
-        for (const p of props) {
-          if ((p.category || 'floor') === 'wall') continue;
-          if (p.d === 2 && p.cx === w.cx && p.cy === w.cy - 1) return true;
-        }
-      } else {
-        for (const p of props) {
-          if ((p.category || 'floor') === 'wall') continue;
-          if (p.w === 2 && p.cy === w.cy && p.cx === w.cx - 1) return true;
-        }
-      }
-    }
-    return false;
-  }
+  // pathFirstExists + pathBlocksOnFurniture ahora en src/engine/wall-queries.ts.
 
   function showWallPreview(path, isErase, isInvalid) {
     clearWallPreviews();
@@ -2006,6 +1984,7 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
   const agents = [];
   setPersistenceAgentsGetter(() => agents);   // engine/persistence lee desde acá
+  setAgentsStateGetter(() => agents);   // engine/agents-state también
   let paused = false;
 
 

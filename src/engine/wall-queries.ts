@@ -153,6 +153,49 @@ export function getNearestEdgeFromPoint(p: { x: number; z: number } | null): Edg
   return { type: 'wallW', cx: cx + 1, cy };
 }
 
+// ¿La PRIMERA wall del path tiene pared existente? Usado por wall-drag
+// para decidir si arrancamos en modo build (no existe → construir) o
+// erase (existe → borrar) según la primera celda tocada.
+type WallEdge = { type: 'wallN' | 'wallW'; cx: number; cy: number };
+
+export function pathFirstExists(path: WallEdge[]): boolean {
+  if (!path.length) return false;
+  const w = path[0]!;
+  return w.type === 'wallN'
+    ? !!worldGrid.wallN[w.cy]?.[w.cx]
+    : !!worldGrid.wallW[w.cy]?.[w.cx];
+}
+
+// En modo build, true si alguna pared NUEVA del path partiría un mueble
+// multi-celda (2x1 / 1x2). En modo erase devuelve false (eliminar siempre OK).
+export function pathBlocksOnFurniture(path: WallEdge[], isErase: boolean): boolean {
+  if (isErase) return false;
+  for (const w of path) {
+    const exists = w.type === 'wallN'
+      ? !!worldGrid.wallN[w.cy]?.[w.cx]
+      : !!worldGrid.wallW[w.cy]?.[w.cx];
+    if (exists) continue;
+    if (w.type === 'wallN') {
+      for (const p of props) {
+        if (((p['category'] as string) || 'floor') === 'wall') continue;
+        const px = p['cx'] as number;
+        const py = p['cy'] as number;
+        const pd = (p['d'] as number) ?? 1;
+        if (pd === 2 && px === w.cx && py === w.cy - 1) return true;
+      }
+    } else {
+      for (const p of props) {
+        if (((p['category'] as string) || 'floor') === 'wall') continue;
+        const px = p['cx'] as number;
+        const py = p['cy'] as number;
+        const pw = (p['w'] as number) ?? 1;
+        if (pw === 2 && py === w.cy && px === w.cx - 1) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Encuentra la cara de pared más cercana al cursor donde se puede colgar
 // un cuadro. Itera ventana 3x3 alrededor del cursor. La cara debe tener
 // celda del lado correspondiente (sino el cuadro miraría al exterior).
