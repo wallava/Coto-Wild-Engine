@@ -109,6 +109,15 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 **TASK Wave E2 (POV)**: deferida para después de Waves F-J. POV controls (`cePreviewMode`, `showPovControls`, `hidePovControls`, `updatePovOverlayTime`, `updatePovFrame`, `ceScrubFromEvent`) son orchestrators que coordinan demasiado state — extraerlos parcialmente da poca ganancia y rompe la cohesión del módulo. Diferido: extracción de POV/scrub helpers. Razón: orchestrators con coordinación cruzada — abordar con Wave I lifecycle.
 
+**TASK Wave F**: FX system → `src/cutscene/fx.ts`
+- Tipo: CLAUDE
+- Status: ✅ Done
+- Archivos: `src/cutscene/fx.ts` (nuevo, 220 LOC), `src/legacy.ts` (import + 9 wrappers)
+- Funciones extraídas: `FX_PRESETS`, `createFxTextureCache`, `makeFxTexture`, `spawnFxInstance`, `despawnFxInstance`, `updateFxInstance`, `clearAllFx`, `newFxId`, `interpolateFxTarget`, `migrateFxModel`.
+- Decisión Codex review previa respetada: `_activeFxInstances` y `_fxTexCache` quedan como locals de legacy (no singletons de módulo). El módulo expone constructor `createFxTextureCache()` y los callers pasan el Map de instancias activas como argumento.
+- Validación: tsc ✅, smoke-test ✅
+- Tipos: agregué `FxKind`, `FxPreset`, `FxInstance`, `FxTextureCache`, `WorldDims` para parametrizar `CELL/centerX/centerZ` desde legacy.
+
 ---
 
 ## 2026-04-27 08:15 - HANDOFF nocturno: bypass mode no estaba activo, requiere restart Claude

@@ -137,6 +137,18 @@ import {
   resetGizmoPose as editorResetGizmoPose,
 } from './editor/gizmo';
 import {
+  FX_PRESETS as fxPresets,
+  createFxTextureCache,
+  spawnFxInstance as fxSpawnInstance,
+  despawnFxInstance as fxDespawnInstance,
+  updateFxInstance as fxUpdateInstance,
+  clearAllFx as fxClearAll,
+  newFxId as fxNewId,
+  interpolateFxTarget as fxInterpolateTarget,
+  migrateFxModel as fxMigrateModel,
+  type FxInstance,
+} from './cutscene/fx';
+import {
   hasWallN,
   hasWallW,
   getDoorOnWallN,
@@ -2869,159 +2881,25 @@ import { formatRelTime } from './utils/format';
   // ══════════════════════════════════════════════════════════════
   //  FX KEYFRAMES — sprites de partículas + luz
   // ══════════════════════════════════════════════════════════════
-  const FX_PRESETS = {
-    smoke:  { duration: 3.0, color1: 'rgba(180,180,180,0.95)', color2: 'rgba(40,40,40,0)',    size: 90,  rise: 100, pulse: 0.20, count: 3 },
-    fire:   { duration: 3.0, color1: 'rgba(255,220,80,1)',     color2: 'rgba(255,40,0,0)',     size: 110, rise: 50,  pulse: 0.55, count: 4 },
-    sparks: { duration: 1.5, color1: 'rgba(255,255,200,1)',    color2: 'rgba(255,180,40,0)',   size: 60,  rise: 30,  pulse: 0.85, count: 6 },
-    light:  { duration: 4.0, color1: 'rgba(255,240,180,1)',    color2: 'rgba(255,180,80,0)',   size: 200, rise: 0,   pulse: 0.20, count: 1, addLight: true },
-  };
+  const FX_PRESETS = fxPresets;
+  const _fxTexCache = createFxTextureCache();
+  const _activeFxInstances: Map<string, FxInstance> = new Map();
 
-  const _fxTexCache = {};
-  function makeFxTexture(kind) {
-    if (_fxTexCache[kind]) return _fxTexCache[kind];
-    const preset = FX_PRESETS[kind];
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d');
-    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 60);
-    grad.addColorStop(0, preset.color1);
-    grad.addColorStop(0.5, preset.color1.replace(/[0-9.]+\)$/, '0.65)'));
-    grad.addColorStop(1, preset.color2);
-    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-    if (kind === 'sparks' || kind === 'light') {
-      g.globalCompositeOperation = 'lighter';
-      g.strokeStyle = preset.color1;
-      g.lineWidth = 3;
-      for (let a = 0; a < 8; a++) {
-        const ang = (a / 8) * Math.PI * 2;
-        g.beginPath();
-        g.moveTo(64, 64);
-        g.lineTo(64 + Math.cos(ang) * 56, 64 + Math.sin(ang) * 56);
-        g.stroke();
-      }
-    }
-    const tex = new THREE.CanvasTexture(c);
-    tex.needsUpdate = true;
-    _fxTexCache[kind] = tex;
-    return tex;
-  }
-
-  const _activeFxInstances = new Map();
   function spawnFxInstance(kf) {
-    const preset = FX_PRESETS[kf.fx];
-    if (!preset) return null;
-    const tex = makeFxTexture(kf.fx);
-    const sprites = [];
-    for (let i = 0; i < preset.count; i++) {
-      const mat = new THREE.SpriteMaterial({
-        map: tex, transparent: true, depthWrite: false,
-        // NormalBlending — partículas se ven sobre cualquier fondo
-      });
-      const sp = new THREE.Sprite(mat);
-      sp.scale.set(preset.size, preset.size, 1);
-      sp.position.y = -1000;     // off-screen hasta el primer update
-      mat.opacity = 0.01;
-      sp.userData = {
-        offsetX: (Math.random() - 0.5) * 20,
-        offsetZ: (Math.random() - 0.5) * 20,
-        phase: Math.random() * Math.PI * 2,
-        baseSize: preset.size,
-      };
-      scene.add(sp);
-      sprites.push(sp);
-    }
-    let light = null;
-    if (preset.addLight) {
-      light = new THREE.PointLight(0xffd0a0, 1.5, 280, 2);
-      scene.add(light);
-    }
-    return { sprites, light };
+    return fxSpawnInstance(kf, scene, _fxTexCache);
   }
   function despawnFxInstance(inst) {
-    if (!inst) return;
-    for (const sp of inst.sprites) {
-      if (sp.material && sp.material.map) {/* no dispose tex (cached) */}
-      if (sp.material) sp.material.dispose();
-      scene.remove(sp);
-    }
-    if (inst.light) scene.remove(inst.light);
+    fxDespawnInstance(inst, scene);
   }
   function updateFxInstance(kf, inst, progress) {
-    const preset = FX_PRESETS[kf.fx];
-    if (!preset || !inst) return;
-    // Posición target
-    let wx = 0, wz = 0, wy = 4;
-    if (kf.target && kf.target.kind === 'agent') {
-      const a = agents.find(x => x.id === kf.target.id);
-      if (a) {
-        wx = a.px * CELL - centerX;
-        wz = a.py * CELL - centerZ;
-        wy = 30;   // sobre el agente
-      }
-    } else if (kf.target && kf.target.kind === 'cell') {
-      wx = (kf.target.cx + 0.5) * CELL - centerX;
-      wz = (kf.target.cy + 0.5) * CELL - centerZ;
-      wy = 4;
-    }
-    // Evolution
-    const fadeIn  = Math.min(1, progress * 8);          // primeros 0-12.5%
-    const fadeOut = Math.min(1, (1 - progress) * 4);    // últimos 25%
-    const alpha = Math.max(0, Math.min(1, fadeIn * fadeOut));
-    const elapsed = progress * preset.duration;
-    for (let i = 0; i < inst.sprites.length; i++) {
-      const sp = inst.sprites[i];
-      const ud = sp.userData;
-      const t = elapsed + ud.phase;
-      const upY = wy + (preset.rise * progress) + Math.sin(t * 2.5) * 4;
-      const sway = Math.sin(t * 1.7 + i) * 6;
-      sp.position.set(wx + ud.offsetX + sway, upY + i * 14, wz + ud.offsetZ);
-      const pulse = 1 + Math.sin(t * (kf.fx === 'fire' ? 7 : 3)) * preset.pulse;
-      const flicker = (kf.fx === 'sparks') ? (0.5 + 0.5 * Math.sin(t * 18 + i)) : 1;
-      sp.scale.set(ud.baseSize * pulse, ud.baseSize * pulse, 1);
-      sp.material.opacity = alpha * flicker;
-      sp.material.rotation = t * 0.4 * (i % 2 === 0 ? 1 : -1);
-    }
-    if (inst.light) {
-      inst.light.position.set(wx, wy + 40, wz);
-      inst.light.intensity = 1.5 + Math.sin(elapsed * 6) * 0.5;
-      inst.light.intensity *= alpha;
-    }
+    fxUpdateInstance(kf, inst, progress, agents, { CELL, centerX, centerZ });
   }
   function ceClearAllFx() {
-    for (const inst of _activeFxInstances.values()) despawnFxInstance(inst);
-    _activeFxInstances.clear();
+    fxClearAll(_activeFxInstances, scene);
   }
-  // ID generador para entidades FX
-  function ceFxNewId() {
-    return 'fx_' + Math.random().toString(36).slice(2, 8);
-  }
-  // Interpolación entre dos targets (cell-cell smooth, otros snap)
-  function ceFxInterpolateTarget(t1, t2, lerp) {
-    if (!t1) return t2;
-    if (!t2) return t1;
-    if (t1.kind === 'cell' && t2.kind === 'cell') {
-      return {
-        kind: 'cell',
-        cx: t1.cx + (t2.cx - t1.cx) * lerp,
-        cy: t1.cy + (t2.cy - t1.cy) * lerp,
-      };
-    }
-    return lerp < 0.5 ? t1 : t2;
-  }
-  // Migra modelo viejo (fx.keyframes) → nuevo (fx.entities)
-  function ceFxMigrateModel(cutscene) {
-    if (!cutscene.fx) cutscene.fx = { entities: [] };
-    if (cutscene.fx.keyframes && !cutscene.fx.entities) {
-      cutscene.fx.entities = cutscene.fx.keyframes.map(kf => ({
-        id: ceFxNewId(),
-        kind: kf.fx || 'smoke',
-        duration: kf.duration || 3.0,
-        keyframes: [{ t: kf.t, target: kf.target }],
-      }));
-      delete cutscene.fx.keyframes;
-    }
-    if (!cutscene.fx.entities) cutscene.fx.entities = [];
-  }
+  const ceFxNewId = fxNewId;
+  const ceFxInterpolateTarget = fxInterpolateTarget;
+  const ceFxMigrateModel = fxMigrateModel;
 
   const ceEditor = document.getElementById('cutscene-editor');
   const ceTimeline = document.getElementById('ce-timeline');
