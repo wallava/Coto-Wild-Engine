@@ -129,7 +129,7 @@ Camara: medium_shot mike
     expect(result.ok).toBe(false);
   });
 
-  it.skip('rejects DSL without Duracion line; parser currently defaults duration to zero instead of returning an error', () => {
+  it('rejects DSL without Duracion line', () => {
     const result = parseDsl(`# Test
 Agentes: mike@cocina-1
 ## Plano 1 (1s)
@@ -137,6 +137,9 @@ Camara: medium_shot mike
 - mike espera`);
 
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some(e => /[Dd]uraci[óo]n/.test(e.message))).toBe(true);
+    }
   });
 
   it('rejects an unknown shotType', () => {

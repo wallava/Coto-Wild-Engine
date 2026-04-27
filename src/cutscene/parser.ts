@@ -39,6 +39,7 @@ export function parseDsl(source: string): ParseResult {
 
   let title = "";
   let duration = 0;
+  let durationFound = false;
   let finalTransition: "cut" | "fade" | undefined;
   let currentScene: SceneAst | undefined;
 
@@ -64,10 +65,11 @@ export function parseDsl(source: string): ParseResult {
       continue;
     }
 
-    if (line.startsWith("Duracion:")) {
+    if (line.startsWith("Duracion:") || line.startsWith("Duración:")) {
       const parsedDuration = parseDuration(line, lineNumber, errors);
       if (parsedDuration !== undefined) {
         duration = parsedDuration;
+        durationFound = true;
       }
       continue;
     }
@@ -83,7 +85,7 @@ export function parseDsl(source: string): ParseResult {
       continue;
     }
 
-    if (line.startsWith("Camara:")) {
+    if (line.startsWith("Camara:") || line.startsWith("Cámara:")) {
       if (currentScene === undefined) {
         errors.push({ line: lineNumber, message: "La directiva Camara debe estar dentro de una escena H2 valida." });
         continue;
@@ -109,8 +111,9 @@ export function parseDsl(source: string): ParseResult {
       continue;
     }
 
-    if (line.startsWith("Transicion final:")) {
-      const transition = line.slice("Transicion final:".length).trim();
+    if (line.startsWith("Transicion final:") || line.startsWith("Transición final:")) {
+      const prefix = line.startsWith("Transición final:") ? "Transición final:" : "Transicion final:";
+      const transition = line.slice(prefix.length).trim();
       if (transition === "cut" || transition === "fade") {
         finalTransition = transition;
       } else {
@@ -130,6 +133,10 @@ export function parseDsl(source: string): ParseResult {
 
   if (title === "") {
     errors.push({ line: 1, message: "Falta titulo H1 con formato # titulo." });
+  }
+
+  if (!durationFound) {
+    errors.push({ line: 1, message: "Falta duracion total con formato Duracion: Ns o Duración: Ns." });
   }
 
   const astBase = { title, duration, agents, scenes };
@@ -168,7 +175,7 @@ function parseAgents(line: string, lineNumber: number, agents: AgentAst[], error
 }
 
 function parseDuration(line: string, lineNumber: number, errors: ParseError[]): number | undefined {
-  const match = /^Duracion:\s+(\d+(?:\.\d+)?)s\s*$/.exec(line);
+  const match = /^Duraci[oó]n:\s+(\d+(?:\.\d+)?)s\s*$/.exec(line);
   if (match === null) {
     errors.push({ line: lineNumber, message: "Duracion debe usar formato Duracion: Ns, por ejemplo Duracion: 12.5s." });
     return undefined;
@@ -200,7 +207,8 @@ function parseSceneHeader(line: string, lineNumber: number, errors: ParseError[]
 }
 
 function parseCamera(line: string, lineNumber: number, errors: ParseError[]): CameraDirectiveAst | undefined {
-  const rest = line.slice("Camara:".length).trim();
+  const prefix = line.startsWith("Cámara:") ? "Cámara:" : "Camara:";
+  const rest = line.slice(prefix.length).trim();
   if (rest === "") {
     errors.push({ line: lineNumber, message: "Camara requiere shotType y al menos puede incluir subjects." });
     return undefined;
