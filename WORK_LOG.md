@@ -66,6 +66,25 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 22:30 - [POST-FASE 5] Validación visual end-to-end OK + pendientes nice-to-have
+
+Pablo validó visualmente: spawn de agentes, encuentros disparan brain.speak, streaming bubbles word-by-word, session cost crece en Settings UI. Pipeline LLM real funciona end-to-end. Fase 5 oficialmente cerrada.
+
+**[PENDING-PERSONALITY-TUNING]**: Personalidades funcionan pero quedan "ok", no "chimbas".
+- Síntoma: respuestas técnicamente correctas pero falta sazón en CEO Pretender / Junior Overconfident / Intern Anxious.
+- Causa probable: staticSystemBlock genérico, examples poco distintivos, falta de constraints de tono más fuertes.
+- Solución: sesión iterativa con prompts más afilados, examples con respuestas más específicas, restricciones explícitas (longitud, registro, vocabulario muy localizado argentina), eventualmente migrar a Sonnet 4.6 para tests de calidad. NO bloqueante.
+
+**Otros pendientes nice-to-have Fase 5** (todos out-of-scope MVP):
+- 5 personalidades en lugar de 3.
+- decide() avanzado con action catalog completo (WALK_TO/LOOK_AT/EMOTE handlers).
+- Dashboard rico de costos (gráficos, breakdown por personalidad).
+- Sonnet 4.6 expuesto en Settings UI.
+- Memory consolidation con LLM.
+- Cache local LRU.
+
+---
+
 ## 2026-04-27 22:10 - [FASE 5 INTERACTIVA] R5 Triggers + Runtime + Integración (cierre Fase 5)
 
 **Plan inicial**: triggers (Claude), runtime (Codex), logging (Codex), integración main.ts (Claude), tests (Codex).
