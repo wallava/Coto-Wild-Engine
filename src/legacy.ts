@@ -1017,6 +1017,8 @@ import { formatRelTime } from './utils/format';
   const agents = [];
   setPersistenceAgentsGetter(() => agents);   // engine/persistence lee desde acá
   setAgentsStateGetter(() => agents);   // engine/agents-state también
+  // Expose para Fase 5 LLM runtime (main.ts lo lee para triggers).
+  (window as any)._cweAgents = agents;
   let paused = false;
 
 

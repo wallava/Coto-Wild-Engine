@@ -66,6 +66,40 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 22:10 - [FASE 5 INTERACTIVA] R5 Triggers + Runtime + Integración (cierre Fase 5)
+
+**Plan inicial**: triggers (Claude), runtime (Codex), logging (Codex), integración main.ts (Claude), tests (Codex).
+
+**Review loop con Codex**: 1 round.
+- 2 bloqueantes aceptados: wiring real game state via `window._cweAgents`, runtime testeable con tick() expuesto.
+- Sugerencias: stop() limpia interval, cooldown crisis por (agent,need), reset firstAdjT al separarse, logCall metadata only, backpressure ya cubierto por queue maxConcurrent=1.
+
+**Tasks**:
+
+### CLAUDE-R5: triggers.ts + integración main.ts
+- triggers.ts (~120 LOC): TriggerSystem con social_encounter (chebyshev≤1 + >3s + cooldown par 60s + reset firstAdjT al separarse) y crisis (need<20 + cooldown (agent,need) 60s).
+- legacy.ts 1-line: `window._cweAgents = agents`.
+- main.ts: setupAgentRuntime con personalityFor auto-asignando 3 primeros agents → 3 personalidades. window.__assignPersonality manual override. logCall integrado.
+
+### CODEX-13: runtime.ts (delegated)
+- 107 LOC. setupAgentRuntime con AgentBrain por agentId lazy. tick() expuesto. setInterval(1s) default. stop() clearInterval.
+
+### CODEX-14: logging.ts (delegated)
+- 58 LOC. logCall metadata only (sin texto/prompts/memoria). Ring buffer 20.
+
+### CODEX-7E: tests (delegated)
+- triggers.test.ts (9 tests): adyacencia, cooldown 60s, reset firstAdjT, chebyshev diagonales, crisis (agent,need) cooldown.
+- runtime.test.ts (4 tests): tick sin agents, stop limpia, skip si personality null, brain.speak triggered.
+
+**Bug encontrado por Codex**: firstAdjT usaba `0` como sentinel — confundía "primera adyacencia" con "separado" cuando now=0. Cambiado a `null`.
+
+**Validación**: tsc ✅, smoke ✅, npm test **291/291** ✅ (278 + 13).
+**Status**: ✅ Done. **Fase 5 cerrada (rounds principales)**.
+
+**Pendiente validación visual**: Pablo spawnea 2-3 agents, esperar encuentros, observar bubbles + cost en Settings 🤖 LLM.
+
+---
+
 ## 2026-04-27 21:50 - [FASE 5 INTERACTIVA] R4 AgentBrain.speak() MÍNIMO
 
 **Plan inicial**: brain.ts (Claude) + actions.ts STUB (Codex) + streaming-ui.ts (Codex) + tests.
