@@ -66,6 +66,32 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-27 21:50 - [FASE 5 INTERACTIVA] R4 AgentBrain.speak() MÍNIMO
+
+**Plan inicial**: brain.ts (Claude) + actions.ts STUB (Codex) + streaming-ui.ts (Codex) + tests.
+
+**Review loop con Codex**: 1 round.
+- 0 bloqueantes, 4 sugerencias menores: AgentBrain class lifecycle 1-per-agent, maxTokens 100 fixed, decide() stub text vacío, resetGlobalQueueForTests obligatorio.
+
+**Tasks**:
+
+### CODEX-11: actions.ts STUB (delegated)
+- 65 LOC. AgentAction discriminated union (SAY + WALK_TO/LOOK_AT/EMOTE tipos sin handler). applySayAction, applyAgentAction dispatcher.
+
+### CODEX-12: streaming-ui.ts (delegated)
+- 68 LOC. showStreamingBubble con append/close/abort/getText. Fallback show-on-done si DOM update incremental falla.
+
+### CLAUDE-2: brain.ts
+- ~175 LOC. AgentBrain class con lastSpeakT instance state. speak() pipeline: kill switch → rate limit → cap → queue acquire → completeStream → bubble → trackCall + addEpisode + persistir. Fallback canned con reason code en cualquier falla. decide() STUB.
+
+### CODEX-7D: brain tests (delegated, 12 tests)
+- Happy path, kill switch, rate limit, session cap, queue timeout, error stream, agentes independientes, memory growth, costo growth, agent identity en bubble, MockLLMClient.on(pattern), decide() STUB.
+
+**Validación**: tsc ✅, smoke ✅, npm test **278/278** ✅ (266 + 12).
+**Status**: ✅ Done.
+
+---
+
 ## 2026-04-27 21:30 - [FASE 5 INTERACTIVA] R3 Personality + Memory + Persistence + 3 personalidades
 
 **Plan inicial**: 4 jobs paralelos (3 Codex + Claude personalidades) + tests.
