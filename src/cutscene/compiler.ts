@@ -27,7 +27,7 @@ import { CutsceneAstSchema } from './schema-ast';
 import type { Cutscene, CameraKf, AgentKf, Scene as RuntimeScene } from './schema';
 import { CutsceneSchema } from './schema';
 import { newSceneId } from './scenes';
-import { CELL } from '../engine/state';
+import { cellToWorld, worldToCell } from '../engine/coords';
 import * as shots from './shots';
 import * as moves from './camera-moves';
 import * as actions from './actions';
@@ -50,10 +50,6 @@ const AST_SHOT_TO_HANDLER: Record<string, string> = {
   over_the_shoulder: 'overTheShoulder',
 };
 
-function cellToWorld(cx: number, cy: number, id: string): AgentPos {
-  return { id, x: cx * CELL, y: 0, z: cy * CELL };
-}
-
 function resolveInitialAgents(
   ast: CutsceneAst,
   opts: CompileOpts | undefined,
@@ -64,7 +60,7 @@ function resolveInitialAgents(
   for (const a of ast.agents) {
     const cell = zoneMap.get(a.location);
     if (cell) {
-      result.set(a.id, cellToWorld(cell.cx, cell.cy, a.id));
+      result.set(a.id, { id: a.id, ...cellToWorld(cell.cx, cell.cy) });
     } else {
       warnings.push(`compiler: location '${a.location}' de agent '${a.id}' no resuelta. Usando (0,0).`);
       result.set(a.id, { id: a.id, x: 0, y: 0, z: 0 });
@@ -79,8 +75,7 @@ function emitInitialMoveKfs(
 ): Map<string, AgentKf[]> {
   const tracks = new Map<string, AgentKf[]>();
   for (const [id, pos] of agents) {
-    const cx = Math.round(pos.x / CELL);
-    const cy = Math.round(pos.z / CELL);
+    const { cx, cy } = worldToCell(pos);
     tracks.set(id, [{ t: 0, sceneId: firstSceneId, type: 'move', cx, cy }]);
   }
   return tracks;
@@ -303,7 +298,7 @@ export function compileCutscene(ast: CutsceneAst, opts?: CompileOpts): CompileCu
   const worldZones = new Map<string, AgentPos>();
   if (opts?.zonePositions) {
     for (const [zid, cell] of opts.zonePositions) {
-      worldZones.set(zid, cellToWorld(cell.cx, cell.cy, zid));
+      worldZones.set(zid, { id: zid, ...cellToWorld(cell.cx, cell.cy) });
     }
   }
 

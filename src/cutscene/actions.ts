@@ -1,11 +1,10 @@
 import type { AgentKf } from './schema';
 import type { AgentPos } from './shots';
-import { CELL } from '../engine/state';
+import { worldToCell } from '../engine/coords';
 
 export type WorldStateAtT = { agents: Map<string, AgentPos>; zones: Map<string, AgentPos>; };
 export type ActionResult = { kfs: AgentKf[]; warnings: string[]; resolvedTarget?: AgentPos; };
 
-function worldToCell(pos: AgentPos): { cx: number; cy: number } { return { cx: Math.round(pos.x / CELL), cy: Math.round(pos.z / CELL) }; }
 function resolveRef(ref: string, world: WorldStateAtT): AgentPos | undefined { return world.agents.get(ref) ?? world.zones.get(ref); }
 
 export function compileWalkAction(actorId: string, targetRef: string, t: number, sceneId: string, world: WorldStateAtT): ActionResult {
