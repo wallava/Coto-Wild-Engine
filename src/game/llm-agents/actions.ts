@@ -1,6 +1,6 @@
 /**
  * Acciones que un agente LLM puede ejecutar en el juego.
- * Implementados: SAY, EMOTE. WALK_TO / LOOK_AT siguen como stubs (Fase 5.1).
+ * Implementados: SAY, EMOTE, LOOK_AT. WALK_TO sigue como stub (Fase 5.1 B-4).
  */
 
 export type AgentAction =
@@ -20,35 +20,49 @@ export type ShowSpeechBubbleFn = (
   opts?: { autoCloseAfter?: number },
 ) => void;
 
+export type AgentFacing = 'left' | 'right';
+
+/**
+ * Contexto de inyección para handlers de acciones. showSpeechBubble es
+ * obligatorio (SAY y EMOTE lo usan). setFacing y getAgentPositionX son
+ * opcionales por ahora — si faltan, LOOK_AT cae a console.warn graceful.
+ */
+export type ActionContext = {
+  showSpeechBubble: ShowSpeechBubbleFn;
+  setFacing?: (agent: AgentLike, direction: AgentFacing) => void;
+  getAgentPositionX?: (agentId: string) => number | null;
+};
+
 const SAY_AUTOCLOSE_SEC = 3.0;
 const EMOTE_AUTOCLOSE_SEC = 2.0;
+const LOOK_AT_X_THRESHOLD = 0.001;
 
 /**
  * Aplica una acción de agente al objeto de agente dado.
  * SAY: showSpeechBubble con autoCloseAfter=3.0s.
  * EMOTE: showSpeechBubble con autoCloseAfter=2.0s (reacción más corta que diálogo).
- * WALK_TO / LOOK_AT: console.warn — pendientes Fase 5.1 (B-3/B-4).
+ * LOOK_AT: setFacing según posición relativa al target (convención legacy
+ *          dx > 0 → 'left'; ver legacy.ts:4393).
+ * WALK_TO: console.warn — pendiente Fase 5.1 B-4.
  */
 export function applyAgentAction(
   agent: AgentLike,
   action: AgentAction,
-  showSpeechBubble: ShowSpeechBubbleFn,
+  ctx: ActionContext,
 ): void {
   switch (action.type) {
     case 'SAY':
-      applySayAction(agent, action.text, showSpeechBubble);
+      applySayAction(agent, action.text, ctx);
       return;
     case 'EMOTE':
-      applyEmoteAction(agent, action.emote, showSpeechBubble);
+      applyEmoteAction(agent, action.emote, ctx);
+      return;
+    case 'LOOK_AT':
+      applyLookAtAction(agent, action.target, ctx);
       return;
     case 'WALK_TO':
       console.warn(
         `[agent-action] WALK_TO no implementado (Fase 5.1 B-4). agent=${agent.id} target=${action.target}`,
-      );
-      return;
-    case 'LOOK_AT':
-      console.warn(
-        `[agent-action] LOOK_AT no implementado (Fase 5.1 B-2). agent=${agent.id} target=${action.target}`,
       );
       return;
   }
@@ -56,14 +70,14 @@ export function applyAgentAction(
 
 /**
  * Muestra el texto del agente como speech bubble.
- * autoCloseAfter: 3.0s por defecto (legacy showSpeechBubble lo acepta como ms o s según impl).
+ * autoCloseAfter: 3.0s por defecto.
  */
 export function applySayAction(
   agent: AgentLike,
   text: string,
-  showSpeechBubble: ShowSpeechBubbleFn,
+  ctx: ActionContext,
 ): void {
-  showSpeechBubble(agent, text, { autoCloseAfter: SAY_AUTOCLOSE_SEC });
+  ctx.showSpeechBubble(agent, text, { autoCloseAfter: SAY_AUTOCLOSE_SEC });
 }
 
 /**
@@ -71,12 +85,48 @@ export function applySayAction(
  * bubble con autoClose más corto (2.0s) para diferenciar reacción de diálogo.
  * @param agent agente que ejecuta el emote.
  * @param emote string del emote (típicamente 1-3 caracteres / emoji).
- * @param showSpeechBubble fn inyectada que renderiza la burbuja.
+ * @param ctx contexto con showSpeechBubble inyectado.
  */
 export function applyEmoteAction(
   agent: AgentLike,
   emote: string,
-  showSpeechBubble: ShowSpeechBubbleFn,
+  ctx: ActionContext,
 ): void {
-  showSpeechBubble(agent, emote, { autoCloseAfter: EMOTE_AUTOCLOSE_SEC });
+  ctx.showSpeechBubble(agent, emote, { autoCloseAfter: EMOTE_AUTOCLOSE_SEC });
+}
+
+/**
+ * Orienta al agente hacia el target comparando posiciones X.
+ * Convención legacy (legacy.ts:4393): dx > 0 → 'left'.
+ *
+ * Si setFacing o getAgentPositionX no están en ctx, o las posiciones no
+ * resuelven, fallback a console.warn (no rompe el flujo).
+ *
+ * @param agent agente que orienta su mirada.
+ * @param targetId id del target (otro agente, zona, etc.).
+ * @param ctx contexto con setFacing + getAgentPositionX inyectados.
+ */
+export function applyLookAtAction(
+  agent: AgentLike,
+  targetId: string,
+  ctx: ActionContext,
+): void {
+  if (!ctx.setFacing || !ctx.getAgentPositionX) {
+    console.warn(
+      `[agent-action] LOOK_AT no wired (falta setFacing o getAgentPositionX). agent=${agent.id} target=${targetId}`,
+    );
+    return;
+  }
+  const agentX = ctx.getAgentPositionX(agent.id);
+  const targetX = ctx.getAgentPositionX(targetId);
+  if (agentX === null || targetX === null) {
+    console.warn(
+      `[agent-action] LOOK_AT sin posición resoluble. agent=${agent.id} target=${targetId} agentX=${agentX} targetX=${targetX}`,
+    );
+    return;
+  }
+  const dx = targetX - agentX;
+  if (Math.abs(dx) < LOOK_AT_X_THRESHOLD) return; // Misma X, no flip.
+  const direction: AgentFacing = dx > 0 ? 'left' : 'right';
+  ctx.setFacing(agent, direction);
 }

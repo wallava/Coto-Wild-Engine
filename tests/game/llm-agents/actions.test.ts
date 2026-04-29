@@ -3,74 +3,150 @@ import {
   applyAgentAction,
   applySayAction,
   applyEmoteAction,
+  applyLookAtAction,
 } from '../../../src/game/llm-agents/actions';
-import type { AgentLike, ShowSpeechBubbleFn } from '../../../src/game/llm-agents/actions';
+import type {
+  ActionContext,
+  AgentFacing,
+  AgentLike,
+  ShowSpeechBubbleFn,
+} from '../../../src/game/llm-agents/actions';
 
-function makeAgent(): AgentLike {
-  return { id: 'agent-1' };
+function makeAgent(id = 'agent-1'): AgentLike {
+  return { id };
+}
+
+function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext & {
+  showSpeechBubble: ReturnType<typeof vi.fn>;
+  setFacing: ReturnType<typeof vi.fn>;
+  getAgentPositionX: ReturnType<typeof vi.fn>;
+} {
+  const showSpeechBubble = vi.fn();
+  const setFacing = vi.fn();
+  const getAgentPositionX = vi.fn();
+  return {
+    showSpeechBubble: showSpeechBubble as unknown as ShowSpeechBubbleFn,
+    setFacing: setFacing as unknown as (a: AgentLike, d: AgentFacing) => void,
+    getAgentPositionX: getAgentPositionX as unknown as (id: string) => number | null,
+    ...overrides,
+  } as never;
 }
 
 describe('applySayAction', () => {
   it('invoca showSpeechBubble con texto + autoCloseAfter 3.0s', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    applySayAction(agent, 'hola mundo', fn);
-    expect(fn).toHaveBeenCalledOnce();
-    expect(fn).toHaveBeenCalledWith(agent, 'hola mundo', { autoCloseAfter: 3.0 });
+    const ctx = makeCtx();
+    applySayAction(agent, 'hola mundo', ctx);
+    expect(ctx.showSpeechBubble).toHaveBeenCalledOnce();
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'hola mundo', {
+      autoCloseAfter: 3.0,
+    });
   });
 });
 
 describe('applyEmoteAction', () => {
   it('invoca showSpeechBubble con emote + autoCloseAfter 2.0s', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    applyEmoteAction(agent, '🤔', fn);
-    expect(fn).toHaveBeenCalledOnce();
-    expect(fn).toHaveBeenCalledWith(agent, '🤔', { autoCloseAfter: 2.0 });
+    const ctx = makeCtx();
+    applyEmoteAction(agent, '🤔', ctx);
+    expect(ctx.showSpeechBubble).toHaveBeenCalledOnce();
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, '🤔', {
+      autoCloseAfter: 2.0,
+    });
   });
 
   it('preserva strings multi-char (palabra corta como emote)', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    applyEmoteAction(agent, 'meh', fn);
-    expect(fn).toHaveBeenCalledWith(agent, 'meh', { autoCloseAfter: 2.0 });
+    const ctx = makeCtx();
+    applyEmoteAction(agent, 'meh', ctx);
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'meh', {
+      autoCloseAfter: 2.0,
+    });
+  });
+});
+
+describe('applyLookAtAction', () => {
+  it('target a la derecha (targetX > agentX) → setFacing left (convención legacy)', () => {
+    const agent = makeAgent('a1');
+    const ctx = makeCtx();
+    ctx.getAgentPositionX.mockImplementation((id: string) => (id === 'a1' ? 100 : 200));
+    applyLookAtAction(agent, 'a2', ctx);
+    expect(ctx.setFacing).toHaveBeenCalledOnce();
+    expect(ctx.setFacing).toHaveBeenCalledWith(agent, 'left');
+  });
+
+  it('target a la izquierda (targetX < agentX) → setFacing right', () => {
+    const agent = makeAgent('a1');
+    const ctx = makeCtx();
+    ctx.getAgentPositionX.mockImplementation((id: string) => (id === 'a1' ? 200 : 50));
+    applyLookAtAction(agent, 'a2', ctx);
+    expect(ctx.setFacing).toHaveBeenCalledWith(agent, 'right');
+  });
+
+  it('misma X (dx < threshold) → no flip', () => {
+    const agent = makeAgent('a1');
+    const ctx = makeCtx();
+    ctx.getAgentPositionX.mockImplementation(() => 100);
+    applyLookAtAction(agent, 'a2', ctx);
+    expect(ctx.setFacing).not.toHaveBeenCalled();
+  });
+
+  it('graceful: setFacing ausente → console.warn, no throw', () => {
+    const agent = makeAgent();
+    const ctx: ActionContext = {
+      showSpeechBubble: vi.fn() as unknown as ShowSpeechBubbleFn,
+      // sin setFacing ni getAgentPositionX
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    applyLookAtAction(agent, 'a2', ctx);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0]![0]).toContain('LOOK_AT no wired');
+    warnSpy.mockRestore();
+  });
+
+  it('graceful: getAgentPositionX devuelve null → console.warn, no setFacing', () => {
+    const agent = makeAgent();
+    const ctx = makeCtx();
+    ctx.getAgentPositionX.mockReturnValue(null);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    applyLookAtAction(agent, 'a2', ctx);
+    expect(ctx.setFacing).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
   });
 });
 
 describe('applyAgentAction dispatcher', () => {
   it('SAY → applySayAction (autoClose 3.0)', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    applyAgentAction(agent, { type: 'SAY', text: 'hola' }, fn);
-    expect(fn).toHaveBeenCalledWith(agent, 'hola', { autoCloseAfter: 3.0 });
+    const ctx = makeCtx();
+    applyAgentAction(agent, { type: 'SAY', text: 'hola' }, ctx);
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'hola', { autoCloseAfter: 3.0 });
   });
 
   it('EMOTE → applyEmoteAction (autoClose 2.0)', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    applyAgentAction(agent, { type: 'EMOTE', emote: '😅' }, fn);
-    expect(fn).toHaveBeenCalledWith(agent, '😅', { autoCloseAfter: 2.0 });
+    const ctx = makeCtx();
+    applyAgentAction(agent, { type: 'EMOTE', emote: '😅' }, ctx);
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, '😅', { autoCloseAfter: 2.0 });
+  });
+
+  it('LOOK_AT → applyLookAtAction (setFacing según posiciones)', () => {
+    const agent = makeAgent('a1');
+    const ctx = makeCtx();
+    ctx.getAgentPositionX.mockImplementation((id: string) => (id === 'a1' ? 0 : 100));
+    applyAgentAction(agent, { type: 'LOOK_AT', target: 'a2' }, ctx);
+    expect(ctx.setFacing).toHaveBeenCalledWith(agent, 'left');
   });
 
   it('WALK_TO sigue siendo stub (console.warn, sin bubble)', () => {
     const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
+    const ctx = makeCtx();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    applyAgentAction(agent, { type: 'WALK_TO', target: 'kitchen' }, fn);
-    expect(fn).not.toHaveBeenCalled();
+    applyAgentAction(agent, { type: 'WALK_TO', target: 'kitchen' }, ctx);
+    expect(ctx.showSpeechBubble).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledOnce();
     expect(warnSpy.mock.calls[0]![0]).toContain('WALK_TO');
-    warnSpy.mockRestore();
-  });
-
-  it('LOOK_AT sigue siendo stub (console.warn, sin bubble)', () => {
-    const agent = makeAgent();
-    const fn = vi.fn() as unknown as ShowSpeechBubbleFn;
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    applyAgentAction(agent, { type: 'LOOK_AT', target: 'agent-2' }, fn);
-    expect(fn).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0]![0]).toContain('LOOK_AT');
     warnSpy.mockRestore();
   });
 });

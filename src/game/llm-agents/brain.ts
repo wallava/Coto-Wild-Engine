@@ -75,7 +75,7 @@ export class AgentBrain {
 
     const fallback = (reason: string): void => {
       const phrase = getFallbackPhrase(personality);
-      applySayAction(agent, phrase, showSpeechBubble);
+      applySayAction(agent, phrase, { showSpeechBubble });
       this.lastSpeakT = this.now();
       onCallEnd?.({ ok: false, durationMs: this.now() - startedAt, cost: 0, reason });
     };
