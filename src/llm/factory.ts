@@ -1,6 +1,13 @@
-import type { LLMClient } from './types';
+import type { LLMClient, LLMModel } from './types';
 import { AnthropicClient } from './anthropic-client';
+import { MODEL_API_IDS } from './models';
 import { LLM_STORAGE_KEYS } from './storage-keys';
+
+const VALID_MODELS = Object.keys(MODEL_API_IDS) as LLMModel[];
+
+function isValidModel(value: string): value is LLMModel {
+  return (VALID_MODELS as string[]).includes(value);
+}
 
 let _cached: { apiKey: string; client: LLMClient } | null = null;
 
@@ -56,6 +63,50 @@ export function loadSessionCapFromStorage(): number {
   if (!raw) return 0.50;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 0.50;
+}
+
+/**
+ * Lee el override global de modelo desde localStorage. Cuarentena: si el
+ * valor no es un LLMModel válido, devuelve null + console.warn.
+ * @returns el modelo override, o null si no hay override (= usar personality.model).
+ */
+export function loadModelOverrideFromStorage(): LLMModel | null {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem(LLM_STORAGE_KEYS.modelOverride);
+  if (!raw) return null;
+  if (!isValidModel(raw)) {
+    console.warn(
+      `[llm/factory] modelOverride inválido en storage: "${raw}". Ignorado. ` +
+      `Esperado: ${VALID_MODELS.join(' | ')}.`,
+    );
+    return null;
+  }
+  return raw;
+}
+
+/**
+ * Persiste un override global de modelo. null borra el override.
+ * @param model modelo a forzar, o null para usar personality.model en cada llamada.
+ */
+export function setModelOverride(model: LLMModel | null): void {
+  if (typeof localStorage === 'undefined') return;
+  if (model === null) {
+    localStorage.removeItem(LLM_STORAGE_KEYS.modelOverride);
+    return;
+  }
+  if (!isValidModel(model)) {
+    throw new RangeError(`Modelo inválido: ${model}. Esperado: ${VALID_MODELS.join(' | ')}.`);
+  }
+  localStorage.setItem(LLM_STORAGE_KEYS.modelOverride, model);
+}
+
+/**
+ * Resuelve el modelo efectivo para una llamada: override global > personality.model.
+ * @param personalityModel default declarado por la personalidad.
+ * @returns modelo a usar en la llamada.
+ */
+export function getEffectiveModel(personalityModel: LLMModel): LLMModel {
+  return loadModelOverrideFromStorage() ?? personalityModel;
 }
 
 /**

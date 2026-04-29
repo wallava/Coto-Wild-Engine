@@ -6,4 +6,5 @@ export const LLM_STORAGE_KEYS = {
   apiKey: 'cwe_llm_apikey',
   killswitch: 'cwe_llm_killswitch',
   sessionCap: 'cwe_llm_session_cap',
+  modelOverride: 'cwe_llm_model_override',
 } as const;

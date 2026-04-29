@@ -6,9 +6,11 @@ import {
   clearApiKey,
   loadKillSwitchFromStorage,
   loadSessionCapFromStorage,
+  loadModelOverrideFromStorage,
+  setModelOverride,
   sanitizeError,
 } from '../llm/factory';
-import type { SessionCostTracker } from '../llm/types';
+import type { LLMModel, SessionCostTracker } from '../llm/types';
 
 export type SettingsLLMOptions = {
   tracker: SessionCostTracker;
@@ -218,6 +220,29 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
   const capLabel = makeLabel('Cap de sesión (USD)', capInput.id);
   capRow.append(capLabel, capInput);
 
+  const modelRow = document.createElement('div');
+  modelRow.style.cssText = 'margin-top:14px;';
+
+  const modelSelect = document.createElement('select');
+  modelSelect.id = 'llm-settings-model-override';
+  modelSelect.style.cssText =
+    'width:220px;background:#0d0d0d;color:#eee;border:1px solid #555;border-radius:4px;' +
+    'padding:8px 9px;font:13px system-ui,sans-serif;';
+
+  const optDefault = document.createElement('option');
+  optDefault.value = '';
+  optDefault.textContent = 'Default (por personalidad)';
+  const optHaiku = document.createElement('option');
+  optHaiku.value = 'haiku-4-5';
+  optHaiku.textContent = 'Haiku 4.5 (rápido, $1/$5)';
+  const optSonnet = document.createElement('option');
+  optSonnet.value = 'sonnet-4-6';
+  optSonnet.textContent = 'Sonnet 4.6 (calidad, $3/$15)';
+  modelSelect.append(optDefault, optHaiku, optSonnet);
+
+  const modelLabel = makeLabel('Modelo (override global)', modelSelect.id);
+  modelRow.append(modelLabel, modelSelect);
+
   modal.append(
     closeButton,
     title,
@@ -227,6 +252,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
     costRow,
     killSwitchRow,
     capRow,
+    modelRow,
   );
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
@@ -246,6 +272,18 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
     tracker.setCap(cap);
     void loadSessionCapFromStorage();
     updateCostDisplay(tracker.getSessionCost());
+
+    const override = loadModelOverrideFromStorage();
+    modelSelect.value = override ?? '';
+  }
+
+  function persistModelOverride(): void {
+    const value = modelSelect.value;
+    if (value === '') {
+      setModelOverride(null);
+      return;
+    }
+    setModelOverride(value as LLMModel);
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -408,6 +446,7 @@ export function mountLLMSettings(opts: SettingsLLMOptions): SettingsLLMControlle
       persistSessionCap();
     }
   });
+  modelSelect.addEventListener('change', persistModelOverride);
 
   return {
     open,

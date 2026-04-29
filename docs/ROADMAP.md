@@ -183,8 +183,8 @@ Solo lo más sensible.
 - ✅ `cutscene/schema.test.ts` + `engine/schema.test.ts`.
 - ✅ `cutscene/migrations.test.ts` + `engine/migrations.test.ts`.
 - 🔲 `cutscene/compiler.test.ts` — DSL → cutscene fixtures.
-- 🔲 `engine/coords.test.ts` — conversión grid ↔ three.
-- 🔲 `engine/walls.test.ts` — placement + corners.
+- ✅ `engine/coords.test.ts` — conversión grid ↔ three (18 tests).
+- ✅ `engine/walls.test.ts` — placement + corners (47 tests).
 - 🔲 `ai/action-handlers.test.ts` — cada action con su efecto esperado.
 - 🔲 Tests E2E con Playwright (flujos críticos del editor).
 

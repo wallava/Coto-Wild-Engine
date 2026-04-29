@@ -1,5 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { getLLMClient, setApiKey, clearApiKey, isLLMEnabled, sanitizeError } from '../../src/llm/factory';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  getLLMClient,
+  setApiKey,
+  clearApiKey,
+  isLLMEnabled,
+  sanitizeError,
+  loadModelOverrideFromStorage,
+  setModelOverride,
+  getEffectiveModel,
+} from '../../src/llm/factory';
 import { LLM_STORAGE_KEYS } from '../../src/llm/storage-keys';
 
 function installLocalStorage(): void {
@@ -72,6 +81,52 @@ describe('factory.isLLMEnabled', () => {
     setApiKey('sk-ant-api01-keyA');
     localStorage.setItem(LLM_STORAGE_KEYS.killswitch, 'on');
     expect(isLLMEnabled()).toBe(false);
+  });
+});
+
+describe('factory.modelOverride', () => {
+  it('null si no hay override en storage', () => {
+    expect(loadModelOverrideFromStorage()).toBeNull();
+  });
+
+  it('persiste y lee haiku-4-5', () => {
+    setModelOverride('haiku-4-5');
+    expect(loadModelOverrideFromStorage()).toBe('haiku-4-5');
+    expect(localStorage.getItem(LLM_STORAGE_KEYS.modelOverride)).toBe('haiku-4-5');
+  });
+
+  it('persiste y lee sonnet-4-6', () => {
+    setModelOverride('sonnet-4-6');
+    expect(loadModelOverrideFromStorage()).toBe('sonnet-4-6');
+  });
+
+  it('null borra el override del storage', () => {
+    setModelOverride('sonnet-4-6');
+    setModelOverride(null);
+    expect(loadModelOverrideFromStorage()).toBeNull();
+    expect(localStorage.getItem(LLM_STORAGE_KEYS.modelOverride)).toBeNull();
+  });
+
+  it('cuarentena: valor inválido en storage retorna null + console.warn', () => {
+    localStorage.setItem(LLM_STORAGE_KEYS.modelOverride, 'gpt-9000');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(loadModelOverrideFromStorage()).toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('setModelOverride throw RangeError si modelo inválido', () => {
+    expect(() => setModelOverride('claude-x-9000' as never)).toThrow(RangeError);
+  });
+
+  it('getEffectiveModel: sin override usa personality.model', () => {
+    expect(getEffectiveModel('haiku-4-5')).toBe('haiku-4-5');
+    expect(getEffectiveModel('sonnet-4-6')).toBe('sonnet-4-6');
+  });
+
+  it('getEffectiveModel: con override gana sobre personality', () => {
+    setModelOverride('sonnet-4-6');
+    expect(getEffectiveModel('haiku-4-5')).toBe('sonnet-4-6');
   });
 });
 

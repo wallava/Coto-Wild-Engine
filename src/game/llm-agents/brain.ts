@@ -27,7 +27,7 @@ import { buildSystemBlocks, getFallbackPhrase, buildUserMessage } from './person
 import type { AgentMemory } from './memory';
 import { addEpisode } from './memory';
 import { saveAgentMemory } from './persistence';
-import { isLLMEnabled } from '../../llm/factory';
+import { isLLMEnabled, getEffectiveModel } from '../../llm/factory';
 import type { AgentAction, AgentLike, ShowSpeechBubbleFn } from './actions';
 import { applySayAction } from './actions';
 import { showStreamingBubble } from './streaming-ui';
@@ -93,9 +93,10 @@ export class AgentBrain {
       return;
     }
 
-    // 3. Session cap pre-call.
+    // 3. Session cap pre-call. Resolvemos modelo efectivo (override > personality).
+    const effectiveModel = getEffectiveModel(personality.model);
     const estInputTokens = Math.ceil(personality.staticSystemBlock.length / ESTIMATED_INPUT_TOKEN_DIVISOR);
-    if (!tracker.canAffordEstimatedCall(personality.model, estInputTokens, DEFAULT_MAX_TOKENS)) {
+    if (!tracker.canAffordEstimatedCall(effectiveModel, estInputTokens, DEFAULT_MAX_TOKENS)) {
       fallback('session_cap');
       return;
     }
@@ -126,7 +127,7 @@ export class AgentBrain {
 
     try {
       const stream = client.completeStream({
-        model: personality.model,
+        model: effectiveModel,
         system,
         messages: [{ role: 'user', content: userMessage }],
         maxTokens: DEFAULT_MAX_TOKENS,
@@ -138,7 +139,7 @@ export class AgentBrain {
         if (chunk.type === 'text') {
           bubble.append(chunk.delta);
         } else if (chunk.type === 'done') {
-          tracker.trackCall(chunk.result.usage, personality.model, '5m');
+          tracker.trackCall(chunk.result.usage, effectiveModel, '5m');
           cost = chunk.result.costUSD;
         }
       }
