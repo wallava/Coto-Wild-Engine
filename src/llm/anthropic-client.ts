@@ -65,6 +65,11 @@ const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> => {
   });
 };
 
+/**
+ * Cliente HTTP de la API Anthropic Messages. Maneja retries con backoff
+ * exponencial, timeouts (first-token y total), abort signals y streaming SSE.
+ * Implementa la interfaz LLMClient.
+ */
 export class AnthropicClient implements LLMClient {
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -76,6 +81,11 @@ export class AnthropicClient implements LLMClient {
     this.retryConfig = opts.retryConfig ?? DEFAULT_RETRY_CONFIG;
   }
 
+  /**
+   * Ejecuta una completion no-streaming y devuelve el resultado final.
+   * @param opts modelo, mensajes, system blocks, max tokens, abort signal, etc.
+   * @returns texto generado, stopReason, usage y costo en USD.
+   */
   async complete(opts: CompletionOpts): Promise<CompletionResult> {
     const response = await this.requestWithRetry(opts, false);
     const data = await parseJsonResponse<AnthropicMessageResponse>(response);
@@ -91,6 +101,12 @@ export class AnthropicClient implements LLMClient {
     };
   }
 
+  /**
+   * Ejecuta una completion en streaming SSE. Yields chunks de texto a medida
+   * que llegan, un evento usage al final y un evento done con el resultado.
+   * @param opts incluye firstTokenTimeoutMs y totalTimeoutMs opcionales.
+   * @returns generador async que emite StreamChunk hasta cierre del stream.
+   */
   async *completeStream(opts: CompletionOpts): AsyncGenerator<StreamChunk> {
     const response = await this.requestOnce(opts, true);
     if (!response.body) {
