@@ -25,7 +25,7 @@ import { LLMError } from '../../llm/types';
 import type { Personality } from './personality';
 import { buildSystemBlocks, getFallbackPhrase, buildUserMessage } from './personality';
 import type { AgentMemory } from './memory';
-import { addEpisode } from './memory';
+import { addEpisode, computeEpisodeImportance, pruneOldEpisodes, updateRelationship } from './memory';
 import { saveAgentMemory } from './persistence';
 import { isLLMEnabled, getEffectiveModel } from '../../llm/factory';
 import type { AgentAction, AgentLike, ShowSpeechBubbleFn } from './actions';
@@ -146,15 +146,31 @@ export class AgentBrain {
 
       bubble.close();
 
-      // 6. Memory: addEpisode + persistir.
-      addEpisode(this.opts.memory, {
-        t: this.now() / 1000,
-        type: 'spoke_to',
-        participants: [target],
-        summary: bubble.getText().slice(0, 200),
-        importance: 0.5,
+      // 6. Memory: importance heurístico + addEpisode + relationship + prune + save.
+      const memory = this.opts.memory;
+      const summary = bubble.getText().slice(0, 200);
+      const participants = [target];
+      const prevRel = memory.relationships[target];
+      const isFirstEncounter = !prevRel || prevRel.encounterCount === 0;
+      const importance = computeEpisodeImportance({
+        isFirstEncounter,
+        summary,
+        participantCount: participants.length,
       });
-      saveAgentMemory(this.opts.memory);
+      const tSeconds = this.now() / 1000;
+      addEpisode(memory, {
+        t: tSeconds,
+        type: 'spoke_to',
+        participants,
+        summary,
+        importance,
+      });
+      updateRelationship(memory, target, {
+        lastInteractionT: tSeconds,
+        encounterCount: (prevRel?.encounterCount ?? 0) + 1,
+      });
+      pruneOldEpisodes(memory);
+      saveAgentMemory(memory);
 
       this.lastSpeakT = this.now();
       onCallEnd?.({ ok: true, durationMs: this.now() - startedAt, cost });

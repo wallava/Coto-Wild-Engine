@@ -278,6 +278,52 @@ describe('AgentBrain.speak', () => {
   });
 });
 
+describe('AgentBrain memory wiring (importance + relationships + prune)', () => {
+  it('primer encuentro registra importance >= 0.8 y actualiza relationship', async () => {
+    let now = 1_000;
+    const { brain, client, memory } = createBrain({ nowMs: () => now });
+    (client as MockLLMClient).queue({ text: 'hola' });
+
+    await brain.speak('employee-1');
+
+    expect(memory.episodes).toHaveLength(1);
+    expect(memory.episodes[0]!.importance).toBeGreaterThanOrEqual(0.8);
+    expect(memory.relationships['employee-1']).toMatchObject({
+      encounterCount: 1,
+      lastInteractionT: 1.0,
+    });
+  });
+
+  it('segundo encuentro mismo target tiene importance menor (sin first-encounter bonus)', async () => {
+    let now = 1_000;
+    const { brain, client, memory } = createBrain({ nowMs: () => now });
+    (client as MockLLMClient).queue({ text: 'primer' });
+    (client as MockLLMClient).queue({ text: 'segundo' });
+
+    await brain.speak('employee-1');
+    now += ceoPretender.triggers.cooldownMsAfterSpeak;
+    await brain.speak('employee-1');
+
+    expect(memory.episodes).toHaveLength(2);
+    expect(memory.episodes[0]!.importance).toBeGreaterThanOrEqual(0.8);
+    expect(memory.episodes[1]!.importance).toBeLessThan(0.8);
+    expect(memory.relationships['employee-1']!.encounterCount).toBe(2);
+  });
+
+  it('pruneOldEpisodes se ejecuta tras cada speak (memoria respeta cap)', async () => {
+    let now = 1_000;
+    const { brain, client, memory } = createBrain({ nowMs: () => now });
+
+    for (let i = 0; i < 60; i++) {
+      (client as MockLLMClient).queue({ text: `linea ${i}` });
+      await brain.speak(`employee-${i}`);
+      now += ceoPretender.triggers.cooldownMsAfterSpeak;
+    }
+
+    expect(memory.episodes.length).toBeLessThanOrEqual(50);
+  });
+});
+
 describe('AgentBrain.decide', () => {
   it("returns the MVP SAY stub with empty text", () => {
     const { brain } = createBrain();

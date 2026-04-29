@@ -135,6 +135,46 @@ export function updateRelationship(
   return updated;
 }
 
+// ── Importance scoring ───────────────────────────────────────────────
+
+const IMPORTANCE_BASE = 0.5;
+const IMPORTANCE_FIRST_ENCOUNTER_BONUS = 0.3;
+const IMPORTANCE_LONG_SUMMARY_BONUS = 0.1;
+const IMPORTANCE_LONG_SUMMARY_THRESHOLD = 100;
+const IMPORTANCE_PER_EXTRA_PARTICIPANT = 0.05;
+const IMPORTANCE_EXTRA_PARTICIPANT_CAP = 0.10;
+
+/**
+ * Heurística MVP de importance para un episodio nuevo. Combina señales
+ * conocidas (primer encuentro, longitud del diálogo, cantidad de testigos)
+ * en un score [0, 1]. Refinable post-validación gameplay.
+ *
+ * @param opts.isFirstEncounter true si el participante principal nunca
+ *        habló con este agente antes (encounterCount === 0).
+ * @param opts.summary texto del episodio. Diálogos largos pesan más.
+ * @param opts.participantCount cuántos participantes (incluye actor + targets).
+ *        Más testigos = más memorable. Cap a +0.10.
+ * @returns score en [0, 1].
+ */
+export function computeEpisodeImportance(opts: {
+  isFirstEncounter: boolean;
+  summary: string;
+  participantCount: number;
+}): number {
+  let score = IMPORTANCE_BASE;
+  if (opts.isFirstEncounter) score += IMPORTANCE_FIRST_ENCOUNTER_BONUS;
+  if (opts.summary.length > IMPORTANCE_LONG_SUMMARY_THRESHOLD) {
+    score += IMPORTANCE_LONG_SUMMARY_BONUS;
+  }
+  const extras = Math.max(0, opts.participantCount - 1);
+  const participantBonus = Math.min(
+    IMPORTANCE_EXTRA_PARTICIPANT_CAP,
+    extras * IMPORTANCE_PER_EXTRA_PARTICIPANT,
+  );
+  score += participantBonus;
+  return Math.min(1, Math.max(0, score));
+}
+
 // ── Pruning ──────────────────────────────────────────────────────────
 
 const DEFAULT_PRUNE: PruneOptions = { keepRecent: 20, keepImportant: 30, maxTotal: 50 };

@@ -4,6 +4,7 @@ import {
   CURRENT_MEMORY_VERSION,
   addEpisode,
   addFact,
+  computeEpisodeImportance,
   createEmptyMemory,
   pruneOldEpisodes,
   updateRelationship,
@@ -110,6 +111,87 @@ describe('pruneOldEpisodes', () => {
     pruneOldEpisodes(m, { keepRecent: 5, keepImportant: 5, maxTotal: 10 });
 
     expect(m.episodes).toEqual([]);
+  });
+});
+
+describe('computeEpisodeImportance', () => {
+  it('caso base: encounter no-primero, summary corto, 1 participante = 0.5', () => {
+    const score = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: 'corto',
+      participantCount: 1,
+    });
+    expect(score).toBe(0.5);
+  });
+
+  it('primer encuentro suma +0.3', () => {
+    const score = computeEpisodeImportance({
+      isFirstEncounter: true,
+      summary: 'corto',
+      participantCount: 1,
+    });
+    expect(score).toBeCloseTo(0.8, 5);
+  });
+
+  it('summary > 100 chars suma +0.1', () => {
+    const longSummary = 'x'.repeat(101);
+    const score = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: longSummary,
+      participantCount: 1,
+    });
+    expect(score).toBeCloseTo(0.6, 5);
+  });
+
+  it('summary exactamente 100 chars NO suma (threshold estricto)', () => {
+    const exactly100 = 'x'.repeat(100);
+    const score = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: exactly100,
+      participantCount: 1,
+    });
+    expect(score).toBe(0.5);
+  });
+
+  it('participantes extra suman +0.05 cada uno con cap a +0.10', () => {
+    const score2 = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: '',
+      participantCount: 2,
+    });
+    expect(score2).toBeCloseTo(0.55, 5);
+
+    const score3 = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: '',
+      participantCount: 3,
+    });
+    expect(score3).toBeCloseTo(0.60, 5);
+
+    const score10 = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: '',
+      participantCount: 10,
+    });
+    expect(score10).toBeCloseTo(0.60, 5); // cap a +0.10 (capped at +0.10 over base)
+  });
+
+  it('todos los bonuses combinados clamp a 1.0', () => {
+    const score = computeEpisodeImportance({
+      isFirstEncounter: true,
+      summary: 'x'.repeat(200),
+      participantCount: 5,
+    });
+    expect(score).toBeCloseTo(1.0, 5);
+  });
+
+  it('participantCount 0 no produce bonus negativo (extras=0)', () => {
+    const score = computeEpisodeImportance({
+      isFirstEncounter: false,
+      summary: '',
+      participantCount: 0,
+    });
+    expect(score).toBe(0.5);
   });
 });
 
