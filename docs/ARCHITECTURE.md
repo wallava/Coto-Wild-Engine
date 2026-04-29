@@ -177,7 +177,7 @@ Permite extraer la lógica sin tocar el state owner. Cuando el state owner tambi
 
 ### Debt arquitectónico identificado
 
-- `src/engine/agent-texture.ts` importa `../game/agent-kits` — viola layering "engine no importa game". Pre-existente, fuera de scope de Fase 2 actual. Corregir en sesión de cleanup.
+(Nada pendiente al 2026-04-29. Layering violation `engine/agent-texture` → `game/agent-kits` corregida en TASK-2 nocturna con setter pattern + catálogo inyectado desde main.ts.)
 
 ---
 

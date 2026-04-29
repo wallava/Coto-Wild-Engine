@@ -1,6 +1,13 @@
 // AGENTS.INC — entry point
 // Slice 1.2: importa el bulk legacy del monolito.
 
+import { setAgentTextureCatalog } from './engine/agent-texture';
+import { BRAIN_FONT_SIZE, getItemSize } from './game/agent-kits';
+
+// Wire engine ↔ game catalog ANTES de que legacy evalúe.
+// engine/agent-texture es agnóstico de game; main.ts inyecta el catálogo concreto.
+setAgentTextureCatalog({ brainFontSize: BRAIN_FONT_SIZE, getItemSize });
+
 import './legacy';
 import { mountLLMSettings } from './ui/settings-llm';
 import { createSessionCostTracker } from './llm/cost-tracker';

@@ -86,7 +86,7 @@ Schemas Zod (Fase 3):
 
 ### Debt arquitectónico identificado
 
-- `src/engine/agent-texture.ts` importa `../game/agent-kits` — viola layering "engine no importa game". Pre-existente, fuera de scope de Fase 2 actual. Corregir en sesión de cleanup.
+- ✅ `src/engine/agent-texture.ts` ya no importa `../game/agent-kits` (corregido 2026-04-29 con setter pattern + catálogo inyectado desde main.ts).
 - 4 diferidos permanentes de Fase 2 cutscene (todos justificados, no se extraerán):
   - Body de ceUpdate: header, walls eval, per-track agent eval, camera interp.
   - cePreviewMode orchestrator + cePovToggle.click handler.

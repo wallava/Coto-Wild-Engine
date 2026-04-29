@@ -2,11 +2,26 @@
 // lado derecho. El brainFlipped se usa cuando el agente camina hacia la
 // izquierda (cerebro mirror horizontal); el item NUNCA se flipea.
 //
-// Tamaño del item viene de ITEM_SIZES (catálogo AGENTS.INC) — proporcional
-// al objeto real (bombilla chica, caja grande, etc).
+// Tamaño del item viene del catálogo del juego (game/agent-kits) — proporcional
+// al objeto real (bombilla chica, caja grande, etc). Se inyecta vía setter
+// para preservar la regla de layering "engine no importa game".
 
 import * as THREE from 'three';
-import { BRAIN_FONT_SIZE, getItemSize } from '../game/agent-kits';
+
+type AgentTextureCatalog = {
+  brainFontSize: number;
+  getItemSize: (emoji: string) => number;
+};
+
+// Defaults seguros: si el wiring de main.ts todavía no corrió cuando alguien
+// llama createAgentTexture, los valores por defecto preservan el render.
+let _brainFontSize = 110;
+let _getItemSize: (emoji: string) => number = () => 60;
+
+export function setAgentTextureCatalog(catalog: AgentTextureCatalog): void {
+  _brainFontSize = catalog.brainFontSize;
+  _getItemSize = catalog.getItemSize;
+}
 
 export function createAgentTexture(
   left: string,
@@ -23,7 +38,7 @@ export function createAgentTexture(
 
   // Cerebro: tamaño fijo grande, opcionalmente flipped horizontal cuando
   // el agente camina hacia la izquierda.
-  ctx.font = `${BRAIN_FONT_SIZE}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.font = `${_brainFontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
   if (brainFlipped) {
     ctx.save();
     ctx.translate(76, 0);
@@ -34,14 +49,14 @@ export function createAgentTexture(
     ctx.fillText(left, 76, 130);
   }
 
-  // Item: tamaño según ITEM_SIZES. NUNCA flipped. Base alineada con base
-  // del cerebro (sostenido a su altura, no flotando arriba).
-  const itemSize = getItemSize(right);
+  // Item: tamaño según catálogo inyectado. NUNCA flipped. Base alineada con
+  // base del cerebro (sostenido a su altura, no flotando arriba).
+  const itemSize = _getItemSize(right);
   ctx.font = `${itemSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-  const itemBaseY = 130 + BRAIN_FONT_SIZE / 2;
+  const itemBaseY = 130 + _brainFontSize / 2;
   const itemCenterY = itemBaseY - itemSize / 2;
   // X del item: borde derecho del cerebro + half del item + margen chico.
-  const itemX = 76 + BRAIN_FONT_SIZE * 0.36 + itemSize * 0.35 + 4;
+  const itemX = 76 + _brainFontSize * 0.36 + itemSize * 0.35 + 4;
   ctx.fillText(right, itemX, itemCenterY);
 
   const texture = new THREE.CanvasTexture(canvas);
