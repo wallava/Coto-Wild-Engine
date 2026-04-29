@@ -94,11 +94,95 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 - Archivos modificados: `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/CUTSCENES.md`, `docs/AGENTS_LLM.md`
 - Validación: tsc n/a (no toca código), npm test ✅ 291/291 (sin cambios)
 - Status: ✅ Done
+- Commit: `e398e32`
 - Notas: 
   - ROADMAP: marcadas Fase 4 (DSL) y Capa LLM como ✅ cerradas. Agregada Fase 5.1 (encuentros con cuerpo).
   - ARCHITECTURE: actualizada fecha 2026-04-27 → 2026-04-29, agregadas tablas de módulos Fase 4 (cutscene/parser, schema-ast, shots, camera-moves, actions, compiler) y Fase 5 (LLM + llm-agents). Plan de migración: Fase 4 + Fase 5 marcadas ✅ con detalle.
   - CUTSCENES: sección "DSL — la próxima fase" → "DSL — implementado en Fase 4". Agregada sección "Post-migración Fase 4 (DSL)" con módulos extraídos + nota de pendientes.
   - AGENTS_LLM: agregada sección "Estado actual (post-Fase 5)" después del frame. Sección "Lo que NO va en Fase 5" reescrita como "Lo que NO fue en Fase 5 (diferido)" con asignación a Fase 5.1 / 6 / horizonte 3 según corresponda. Nota agregada en "Modelo único" sobre decisión Haiku confirmada en validación.
+
+**TASK-2: Fix layering engine/agent-texture** — ✅ Done
+- Tipo: CLAUDE
+- Archivos modificados: `src/engine/agent-texture.ts`, `src/main.ts`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`
+- Validación: rg layering ✅ vacío, tsc ✅, npm test ✅ 291/291, smoke-test ✅
+- Status: ✅ Done
+- Commit: `b4733ed`
+- Notas:
+  - Setter pattern adoptado pero con shape DIFERENTE al ejemplo del spec. El spec asumía `AgentTextureKit[]` (lista de kits). El uso real solo necesita `brainFontSize` (constante numérica) y `getItemSize` (función). Adapté tipo local `AgentTextureCatalog` con esos 2 campos. Justificación: el spec ejemplo no matchea uso real; preservé el espíritu (setter + tipo local minimal) y deviated del literal por necesidad técnica.
+  - Defaults seguros (110, ()=>60) para evitar race en boot ante ES module hoisting.
+  - main.ts ahora hace `setAgentTextureCatalog({ brainFontSize: BRAIN_FONT_SIZE, getItemSize })` antes de import './legacy'.
+  - Debt note de docs invalidada por el fix → actualizada en mismo commit (CLAUDE.md regla: "código que invalida docs → actualizar doc en el mismo cambio").
+
+**TASK-3: Tests engine/coords (12+ casos)** — ⏭️ Skipped [SKIP-NO-MODULE]
+- Tipo: CLAUDE
+- Razón del skip: `src/engine/coords.ts` no existe. `state.ts` solo expone constantes (GRID_W, GRID_H, CELL, centerX, centerZ) sin funciones de conversión. `cellToWorld` existe pero como helper privado en `cutscene/compiler.ts`. Nada que testear como "engine/coords".
+- Archivos modificados: ninguno.
+- Status: ⏭️ Skipped clean.
+- Notas: Per nocturnal mode rules "no inventar funciones que asumís deberían existir". Tag `[SKIP-NO-MODULE]`. Pablo puede crear el módulo en sesión futura si las conversiones grid↔three se necesitan extraídas.
+
+**TASK-4: Tests engine/walls (15+ casos)** — ✅ Done
+- Tipo: CLAUDE
+- Archivos modificados: `tests/engine/walls.test.ts` (nuevo, 360 líneas, 47 tests).
+- Validación: tsc ✅, vitest 47/47 ✅, npm test full 338/338 ✅, smoke-test ✅.
+- Status: ✅ Done
+- Commit: `f6eeca4`
+- Notas:
+  - Cobertura: hasWallN/W con bounds, isCorner, isAllWindowCorner, blocksSpillN/W vs blocksPathN/W (door semantics), getDoorOnWallN/W con sides N/S/W/E, getAdjacentCell, getNearestEdgeFromPoint (4 sides), findNearestWallSegment + findNearestPlaceableWallFace (basic), pathFirstExists, pathBlocksOnFurniture (build vs erase con muebles 1x2), getCandidateWallSlots (interiores 2 slots, exteriores 1), getWallPropBounds (sides + defaults).
+  - Setup: `loadWorldData` con grid vacío 6x6 en `beforeEach`. Tests mutan `worldGrid.wallN/wallW` y `props` directo para casos específicos.
+  - 47 tests > spec mínimo de 15.
+
+**TASK-5: JSDoc en 5 index.ts (condicional)** — ⏭️ Skipped [SKIP-NO-DIRECT-EXPORTS]
+- Tipo: CLAUDE
+- Condiciones para intentar: hora < 11:00 ✅, TASK-1..4 commiteadas/saltadas ✅, budget Claude > 30% ✅, budget Codex > 30% ✅ (no se usó).
+- Razón del skip: 4 de 5 archivos target no existen — `src/engine/index.ts`, `src/cutscene/index.ts`, `src/game/llm-agents/index.ts`, `src/utils/index.ts`. Único existente `src/llm/index.ts` es barrel puro de re-exports (`export { foo } from './bar'`). No tiene `export function` ni `export const X = (...) =>` directo. JSDoc va en sitio de definición, no en re-exports.
+- Archivos modificados: ninguno.
+- Status: ⏭️ Skipped clean.
+- Notas: Tag `[SKIP-NO-DIRECT-EXPORTS]`. Pablo puede pedir JSDoc en módulos concretos (anthropic-client.ts, queue.ts, etc.) en sesión futura.
+
+### Discrepancias con Codex (si las hubo)
+
+Ninguna. Codex no se usó esta noche — todas las tareas eran ejecutables por Claude solo y la sesión era short enough para no requerir paralelismo entre agentes.
+
+### Anti-loops activados (si los hubo)
+
+Ninguno.
+
+### Hora de fin y razón
+
+[a determinar al cierre — todas las tareas atendidas, idle hasta que Pablo se despierte o se alcance soft stop 12:00]
+
+### Estado final del repo
+
+- tsc: ✅ pasa
+- tests: ✅ 338/338 pasan (291 baseline + 47 nuevos en walls.test.ts)
+- smoke-test: ✅ pasa
+- Archivos modificados (commits):
+  - `docs/ROADMAP.md` (TASK-1 + TASK-2)
+  - `docs/ARCHITECTURE.md` (TASK-1 + TASK-2)
+  - `docs/CUTSCENES.md` (TASK-1)
+  - `docs/AGENTS_LLM.md` (TASK-1)
+  - `WORK_LOG.md` (TASK-1 + final)
+  - `src/engine/agent-texture.ts` (TASK-2)
+  - `src/main.ts` (TASK-2)
+- Archivos nuevos:
+  - `tests/engine/walls.test.ts` (TASK-4)
+- Commits:
+  1. `e398e32` — [NOCTURNO] docs: cleanup post-Fase 5
+  2. `b4733ed` — [NOCTURNO] refactor: engine/agent-texture deja de importar game/agent-kits
+  3. `f6eeca4` — [NOCTURNO] tests: engine/walls con 47 casos críticos
+
+### Tokens finales
+
+- Claude: estimado bajo (sesión ágil, 5 tasks pequeños, 0 loops). Sin medición exacta.
+- Codex: 0% (no se usó).
+
+### Para revisión de Pablo en la mañana
+
+- ✅ Todo funcionando, repo limpio, tests verdes.
+- ⚠️ TASK-2 cambió shape de `setAgentTextureCatalog`: en vez de `AgentTextureKit[]` (como sugería el spec) usa `{ brainFontSize, getItemSize }`. Espíritu del spec respetado (setter + tipo local), letra del ejemplo deviated por necesidad técnica. Decisión justificada acá.
+- ⚠️ TASK-3 saltada porque `engine/coords.ts` no existe. Si querés conversiones grid↔three extraídas en su propio módulo, hay que crearlo primero (tomar de `cellToWorld` privado de `cutscene/compiler.ts`).
+- ⚠️ TASK-5 saltada porque los 4 index.ts target no existen y el único que existe es barrel sin definiciones directas. Si querés JSDoc, mejor target módulos concretos (`anthropic-client.ts`, `queue.ts`, `cost-tracker.ts`, etc.).
+- 💡 No-bloqueante: prompt mencionó 567 tests baseline; real son 291 (ahora 338). Diferencia loggeable, no afecta validez del trabajo.
 
 
 
