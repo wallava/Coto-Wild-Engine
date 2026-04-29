@@ -104,20 +104,29 @@ Setup desde fase inicial post-migración.
 - 🔲 Detección de idioma del input para los generators de IA.
 - 🔲 Estructura preparada para agregar idiomas adicionales sin refactor.
 
-## 🟠 Capa LLM y agentes con LLM real
+## ✅ Capa LLM y agentes con LLM real (Fase 5 cerrada)
 
-Esta es la base de AGENTS.INC. Sin esto, el juego no es lo que queremos.
+Capa LLM + 3 personalidades + memoria persistente + 115 tests Fase 5. GlobalLLMQueue, cost caps multi-capa, prompt caching, sanitización con world_context. Validación visual: pipeline funciona. `[PENDING-PERSONALITY-TUNING]` loggeado para sesión post-gameplay.
 
-- 🔲 **Capa LLM básica** (`src/llm/`): cliente Anthropic con streaming.
-- 🔲 Settings UI para API key.
-- 🔲 **Action schemas** (Zod) y action handlers.
-- 🔲 **AgentBrain** con `speak(target, context)`.
-- 🔲 **Personalidades concretas** (5-10): CEO, junior, senior arrogante, RRHH, intern, etc.
-- 🔲 **Streaming bubbles**: speech aparece word-by-word.
-- 🔲 **Trigger automático de encuentros**: agentes adyacentes hablan.
-- 🔲 **Persistencia de memoria** en localStorage.
-- 🔲 **Score de importance** + memoria episódica.
-- 🔲 **Acciones del LLM** (no solo diálogo).
+- ✅ **Capa LLM básica** (`src/llm/`): cliente Anthropic con streaming, mock client, factory, cost tracker, queue, sanitize.
+- ✅ Settings UI para API key (integrado al toolbar).
+- ✅ **Action schemas** (Zod) y action handlers (stub mínimo SAY).
+- ✅ **AgentBrain** con `speak(target, context)` + streaming.
+- ✅ **Personalidades concretas** (3 base): ceo-pretender, junior-overconfident, intern-anxious.
+- ✅ **Streaming bubbles**: speech aparece word-by-word.
+- ✅ **Trigger automático de encuentros**: agentes adyacentes hablan (`triggers.ts`).
+- ✅ **Persistencia de memoria** en localStorage con cuarentena Zod.
+- 🟡 **Score de importance** + memoria episódica avanzada (diferido a Fase 5.1).
+- 🟡 **Acciones del LLM completas** (decide() con catálogo completo, diferido a Fase 5.1).
+- 🟢 Personalidades adicionales (5-10): senior arrogante, RRHH, etc.
+
+### Fase 5.1 — Encuentros con cuerpo (próxima)
+
+- 🔲 `decide()` real con action catalog completo (WALK_TO, LOOK_AT, EMOTE).
+- 🔲 Memoria episódica con score de importance + pruning recencia/importancia.
+- 🔲 Memory consolidation con LLM (resúmenes de episodios viejos).
+- 🔲 Sonnet 4.6 expuesto en UI (decisión post-evaluación).
+- 🔲 Personalidades adicionales según design narrativo.
 
 Ver `AGENTS_LLM.md` para detalle.
 
@@ -131,35 +140,27 @@ Las herramientas que aceleran el desarrollo.
 
 Ver `AI_ORCHESTRATION.md` para detalle.
 
-## 🟠 DSL de cutscenes
+## ✅ DSL de cutscenes (Fase 4 cerrada)
 
-La feature que desbloquea autoría rápida de Pablo.
+DSL completo: parser + schema-ast + shots + camera-moves + actions + compiler + CLI + fixture + 43 tests. Pipeline end-to-end funcional. Pendientes nice-to-have loggeados: `[PENDING-TUNING-SHOTS]`, `[PENDING-FIXTURE-ZONES]`.
 
-- 🔲 Parser de markdown narrativo a AST.
-- 🔲 Schema del AST (TypeScript + Zod).
-- 🔲 Compiler AST → cutscene model.
-  - 🔲 Resolver agentes y locations a IDs/cells.
-  - 🔲 Calcular poses de cámara desde shot types.
-  - 🔲 Compilar acciones a kfs.
-  - 🔲 Simulación temporal para resolver "camina_a X" en función del estado del mundo en t.
-- 🔲 **Shot types** mínimos:
-  - 🔲 `wide_establishing`
-  - 🔲 `medium_shot`
-  - 🔲 `close_up`
-  - 🔲 `two_shot`
-  - 🔲 `over_the_shoulder`
-- 🔲 **Camera moves**:
-  - 🔲 `dolly_in` / `pull_out`
-  - 🔲 `pan`
-  - 🔲 `push_in`
-- 🔲 **Agent actions**:
-  - 🔲 `camina_a` (cell o agente)
-  - 🔲 `mira_a`
-  - 🔲 `dice "..."`
-  - 🔲 `anima <preset>`
-  - 🔲 `espera <Ns>`
-- 🔲 Validación con errores legibles.
-- 🔲 CLI: `npm run cutscene-compile path/to/scene.md`.
+- ✅ Parser de markdown narrativo a AST (`src/cutscene/parser.ts`).
+- ✅ Schema del AST (TypeScript + Zod en `src/cutscene/schema-ast.ts`).
+- ✅ Compiler AST → cutscene model (`src/cutscene/compiler.ts`).
+  - ✅ Resolver agentes y locations a IDs/cells.
+  - ✅ Calcular poses de cámara desde shot types.
+  - ✅ Compilar acciones a kfs.
+  - ✅ Simulación temporal para resolver "camina_a X" según estado del mundo en t.
+- ✅ **Shot types** implementados (`src/cutscene/shots.ts`):
+  - ✅ `wide_establishing`, `medium_shot`, `close_up`, `two_shot`, `over_the_shoulder`.
+- ✅ **Camera moves** (`src/cutscene/camera-moves.ts`):
+  - ✅ `dolly_in` / `pull_out`, `pan`, `push_in`.
+- ✅ **Agent actions** (`src/cutscene/actions.ts`):
+  - ✅ `camina_a` (cell o agente), `mira_a`, `dice "..."`, `anima <preset>`, `espera <Ns>`.
+- ✅ Validación con errores legibles contra Zod.
+- ✅ CLI: `npm run cutscene-compile path/to/scene.md` (`scripts/cutscene-compile.ts`).
+- 🟢 `[PENDING-TUNING-SHOTS]`: ajuste fino de poses por shot type post-gameplay.
+- 🟢 `[PENDING-FIXTURE-ZONES]`: resolver locations a fixture zones del mundo.
 
 Ver `CUTSCENES.md` para detalle.
 

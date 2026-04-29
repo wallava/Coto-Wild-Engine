@@ -11,9 +11,9 @@ Si en algún momento te encuentras justificando complejidad solo con "los usuari
 
 ---
 
-## Estado actual de migración (2026-04-27)
+## Estado actual de migración (2026-04-29)
 
-**40+ módulos extraídos** del monolito. legacy.ts: 11,941 → ~5,800 líneas (~50% migrado, ~50% pendiente). Schemas Zod cerrados con tests verdes (Fase 3).
+**60+ módulos extraídos** del monolito. legacy.ts: 11,941 → ~5,800 líneas (~50% migrado, ~50% pendiente). Schemas Zod cerrados (Fase 3). DSL de cutscenes cerrado (Fase 4). Capa LLM + agentes con LLM real cerrada (Fase 5).
 
 ```
 src/
@@ -21,14 +21,25 @@ src/
 ├── engine/              (27+ módulos — ver tabla abajo)
 ├── game/                (5 módulos: prop-catalog, zone-catalog, needs,
 │                                    agent-kits, migrations)
-├── cutscene/            (8 módulos: model, scenes, inheritance, keyframes,
-│                                    camera, walls, schema, migrations,
-│                                    persistence parcial)
+│   └── llm-agents/      (Fase 5: brain, personality, memory, persistence,
+│                                  triggers, runtime, streaming-ui +
+│                                  3 personalidades concretas)
+├── cutscene/            (Fase 2: model, scenes, inheritance, keyframes,
+│                                  camera, walls, schema, migrations,
+│                                  persistence parcial, runtime;
+│                         Fase 4: parser, schema-ast, shots, camera-moves,
+│                                  actions, compiler)
+├── llm/                 (Fase 5: types, anthropic-client, mock-client,
+│                                  models, sanitize, cost, cost-tracker,
+│                                  queue, factory, storage-keys)
 ├── ui/                  (5 módulos: modals, catalog-panel, slots-panel,
 │                                    rooms-panel, paint-panel)
 ├── editor/              (4 módulos: multi-sel, toolbar, playback, persistence)
 ├── legacy.ts            (~5,800 líneas, todo lo no extraído)
 └── main.ts              (importa './legacy')
+
+scripts/
+└── cutscene-compile.ts  (CLI Fase 4: DSL .md → cutscene JSON)
 ```
 
 ### Módulos engine extraídos
@@ -102,6 +113,49 @@ src/
 | toolbar | ceUpdateToolbarFields helpers |
 | playback | POV controls + scrubbing + cePreviewMode (parcial) |
 | persistence | save/load cutscenes + integration con validate |
+
+### Módulos cutscene Fase 4 (DSL)
+
+| Módulo | Qué cubre |
+|---|---|
+| parser | markdown narrativo → AST DSL |
+| schema-ast | Zod schema del AST DSL |
+| shots | shot types (wide_establishing, medium_shot, close_up, two_shot, over_the_shoulder) → CameraKf[] |
+| camera-moves | dolly_in/pull_out, pan, push_in → kfs interpolados |
+| actions | agent actions (camina_a, mira_a, dice, anima, espera) → kfs |
+| compiler | orquestador AST → cutscene model con simulación temporal |
+
+CLI: `scripts/cutscene-compile.ts` (`npm run cutscene-compile path/to/scene.md`).
+
+### Módulos LLM Fase 5
+
+| Módulo | Qué cubre |
+|---|---|
+| types | contrato canónico LLMClient, SystemBlock[], CompletionOpts, Message |
+| models | mapping alias → API ID (`haiku-4-5` → `claude-haiku-4-5-20251001`) |
+| anthropic-client | implementación real con streaming + prompt caching |
+| mock-client | implementación determinista para tests |
+| factory | construcción de cliente según settings |
+| sanitize | escape de strings + length limits + tag-injection detection |
+| cost | estimación pre-call por modelo |
+| cost-tracker | session cost tracker + cap enforcement |
+| queue | GlobalLLMQueue (semaphore, max 1 concurrent, FIFO) |
+| storage-keys | keys de localStorage para LLM state |
+
+### Módulos llm-agents Fase 5
+
+| Módulo | Qué cubre |
+|---|---|
+| brain | AgentBrain.speak(target, context) con streaming + fallback |
+| personality | tipos Personality + helpers |
+| memory | AgentMemory + episodes + facts + relationships |
+| persistence | save/load memory por agentId con cuarentena Zod |
+| streaming-ui | speech bubbles word-by-word + abort en click |
+| triggers | encuentros adyacentes + crisis de necesidades + cooldowns |
+| runtime | bucle de ticks que dispara triggers vía queue |
+| personalities/ceo-pretender | personalidad concreta CEO satírico |
+| personalities/junior-overconfident | personalidad concreta junior arrogante |
+| personalities/intern-anxious | personalidad concreta intern ansioso |
 
 ### Setter pattern para deps cíclicas
 
@@ -498,11 +552,14 @@ Bulk del monolito a `legacy.ts` con `@ts-nocheck`. Imports CDN → ES modules pi
 ### Fase 3 — Schema + tipos ✅ (cerrada)
 Schemas Zod completos (world + cutscene). Migrations. Validation runtime con cuarentena. 100 tests verdes.
 
-### Fase 4 — DSL de cutscenes (próxima)
-Parser markdown → AST → cutscene model. Shot types, camera moves, agent actions. CLI.
+### Fase 4 — DSL de cutscenes ✅ (cerrada)
+Parser markdown → AST → cutscene model. Shot types (wide_establishing, medium_shot, close_up, two_shot, over_the_shoulder), camera moves (dolly_in, pull_out, pan, push_in), agent actions (camina_a, mira_a, dice, anima, espera). CLI `npm run cutscene-compile`. Fixture e2e + 43 tests Fase 4. Pipeline funcional. Pendientes nice-to-have: `[PENDING-TUNING-SHOTS]`, `[PENDING-FIXTURE-ZONES]`.
 
-### Fase 5 — Capa LLM + agentes con LLM real
-Cliente Anthropic, AgentBrain, Personality, AgentMemory, 3-5 personalidades concretas, encuentros sociales LLM.
+### Fase 5 — Capa LLM + agentes con LLM real ✅ (cerrada)
+Capa LLM en `src/llm/` (types, anthropic-client, mock-client, models, sanitize, cost, cost-tracker, queue, factory). AgentBrain.speak() con streaming. 3 personalidades concretas: ceo-pretender, junior-overconfident, intern-anxious. AgentMemory con persistencia + cuarentena Zod. Triggers de encuentros + crisis. Settings UI integrado al toolbar (API key + cap + disable LLM). 115 tests Fase 5. Validación visual end-to-end OK. Pendiente nice-to-have: `[PENDING-PERSONALITY-TUNING]`.
+
+### Fase 5.1 — Encuentros con cuerpo (próxima)
+decide() real con action catalog completo (WALK_TO, LOOK_AT, EMOTE handlers). Score de importance + memoria episódica avanzada. Memory consolidation con LLM. Sonnet 4.6 expuesto en UI tras evaluación. Personalidades adicionales según design narrativo.
 
 ### Fase 6 — AI Orchestration
 Tres generators: Personality, Cutscene, World Iterator.

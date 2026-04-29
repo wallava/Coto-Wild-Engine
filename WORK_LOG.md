@@ -66,7 +66,41 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
-## 2026-04-27 22:30 - [POST-FASE 5] Validación visual end-to-end OK + pendientes nice-to-have
+## 2026-04-29 06:37 - [NOCTURNO] Sesión autónoma post-Fase 5 (5 tasks, soft stop 12:00 PM)
+
+**Activación**: 2026-04-29 06:37 AM. Pablo se va a dormir. Trabajo autónomo Claude+Codex paralelo agresivo.
+**Hora de soft stop programada**: 12:00 PM (5h23m window).
+**Budget asignado**: Claude 80k tokens, Codex 300k tokens.
+**Hash limpio inicial**: `8894ae9` (último commit Fase 5 cerrada + log validación).
+**Tests baseline**: 291 passed (27 files). Nota: prompt mencionó 567, real son 291 — diferencia loggeable, no bloqueante.
+**ROADMAP.md uncommitted previo**: descartado con `git restore` granular antes de empezar (TASK-1 lo rehace con spec más detallada).
+
+**Tareas asignadas**:
+1. TASK-1: cleanup docs post-Fase 5 (ROADMAP, ARCHITECTURE, CUTSCENES, AGENTS_LLM) — autorizada por Override 1.
+2. TASK-2: fix layering engine/agent-texture (setter + tipo local).
+3. TASK-3: tests engine/coords (12+ casos).
+4. TASK-4: tests engine/walls (15+ casos).
+5. TASK-5: JSDoc en 5 index.ts (condicional, solo si antes 11:00 AM y budget > 30%).
+
+**Overrides activos esta sesión**:
+- Override 1: docs autorizadas (4 docs específicos, no CLAUDE.md ni otros).
+- Override 2: commits autorizados al cierre de cada TASK con condiciones (no jobs Codex activos, git diff coincide, tsc + tests + smoke pass).
+- Override 3: reverts default `git restore -- archivo`. `git reset --hard` solo si repo entero queda roto y no se arregla en 3 intentos.
+
+### Ejecución
+
+**TASK-1: Cleanup docs post-Fase 5** — ✅ Done
+- Tipo: CLAUDE
+- Archivos modificados: `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/CUTSCENES.md`, `docs/AGENTS_LLM.md`
+- Validación: tsc n/a (no toca código), npm test ✅ 291/291 (sin cambios)
+- Status: ✅ Done
+- Notas: 
+  - ROADMAP: marcadas Fase 4 (DSL) y Capa LLM como ✅ cerradas. Agregada Fase 5.1 (encuentros con cuerpo).
+  - ARCHITECTURE: actualizada fecha 2026-04-27 → 2026-04-29, agregadas tablas de módulos Fase 4 (cutscene/parser, schema-ast, shots, camera-moves, actions, compiler) y Fase 5 (LLM + llm-agents). Plan de migración: Fase 4 + Fase 5 marcadas ✅ con detalle.
+  - CUTSCENES: sección "DSL — la próxima fase" → "DSL — implementado en Fase 4". Agregada sección "Post-migración Fase 4 (DSL)" con módulos extraídos + nota de pendientes.
+  - AGENTS_LLM: agregada sección "Estado actual (post-Fase 5)" después del frame. Sección "Lo que NO va en Fase 5" reescrita como "Lo que NO fue en Fase 5 (diferido)" con asignación a Fase 5.1 / 6 / horizonte 3 según corresponda. Nota agregada en "Modelo único" sobre decisión Haiku confirmada en validación.
+
+
 
 Pablo validó visualmente: spawn de agentes, encuentros disparan brain.speak, streaming bubbles word-by-word, session cost crece en Settings UI. Pipeline LLM real funciona end-to-end. Fase 5 oficialmente cerrada.
 

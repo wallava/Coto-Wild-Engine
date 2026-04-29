@@ -10,6 +10,31 @@ Ver `MVP_SCOPE.md` para qué entra y qué no.
 
 ---
 
+## Estado actual (post-Fase 5)
+
+Fase 5 cerrada (2026-04-29). 3 personalidades funcionando con LLM real (Claude Haiku 4.5). Memoria persistente con cuarentena Zod. 115 tests verdes. Validación visual confirmó funcionamiento end-to-end.
+
+`[PENDING-PERSONALITY-TUNING]` loggeado: tono y matices se ajustan en sesión post-gameplay design. Detalles del juego (cuándo y cómo dispara cada personalidad) se afinan después de validar gameplay loops.
+
+Lo que ya funciona:
+- AgentBrain.speak() con streaming token-by-token.
+- Triggers determinísticos (encuentros adyacentes, crisis de necesidades).
+- GlobalLLMQueue (max 1 concurrent, FIFO).
+- Cost tracker con cap $0.50/sesión configurable.
+- Prompt caching con SystemBlock[].
+- Sanitización con `<world_context>` delimitado.
+- Persistencia de AgentMemory por agentId.
+- Settings UI para API key + toggle "disable all LLM".
+
+Lo que se difiere a Fase 5.1:
+- decide() real con action catalog completo (WALK_TO, LOOK_AT, EMOTE handlers).
+- Score de importance + pruning recencia/importancia.
+- Memory consolidation con LLM.
+- Sonnet 4.6 expuesto en UI.
+- Personalidades adicionales (post-Fase 5).
+
+---
+
 ## Qué resuelve
 
 Sin LLM, los encuentros entre agentes serían:
@@ -78,7 +103,9 @@ Cada capa puede fallar y caer a fallback graceful. El juego nunca se rompe por L
 - Latencia típica: 300-800ms primer token con streaming.
 - Razón: encuentros sociales son diálogo corto y rápido. Haiku 4.5 tiene calidad cercana a Sonnet en este caso de uso, cuesta 1/3, y la latencia importa para sentir natural.
 
-Sonnet 4.6 queda **definido en el contrato de tipos pero NO expuesto en UI** durante Fase 5. Se habilita después de medir calidad/costo con Haiku.
+**Decisión confirmada en validación visual Fase 5**: Haiku 4.5 da calidad suficiente para encuentros sociales. Sonnet 4.6 sigue oculto en UI hasta evaluación post-gameplay (Fase 5.1 o posterior).
+
+Sonnet 4.6 queda **definido en el contrato de tipos pero NO expuesto en UI** durante Fase 5. Se habilita después de medir calidad/costo con Haiku en escenarios reales de juego.
 
 ### Mapping obligatorio alias → API ID
 
@@ -409,16 +436,19 @@ Razón: los tests con LLM real son no deterministas (la respuesta varía), caros
 
 ---
 
-## Lo que NO va en Fase 5 (out of scope)
+## Lo que NO fue en Fase 5 (diferido)
 
-- **decide() avanzado** con action catalog completo. En esta fase solo SAY.
-- **Cache local LRU**. El cache de Anthropic basta. Cache local viene si se mide que ayuda.
-- **Sonnet 4.6 expuesto en UI**. Definido en tipos pero oculto. Se habilita post-Fase 5.
-- **Memory consolidation con LLM**. Resúmenes de episodios viejos via LLM. Nice-to-have.
-- **Más de 3 personalidades**. Las dos extras post-Fase 5 si la base anda.
-- **Dashboard rico de costos**. Lista simple basta.
-- **Conversation Manager** con chat persistente. Horizonte 3.
-- **Voz TTS de respuestas LLM**. Post-MVP, parte del rediseño UI.
+Fase 5 cerrada con scope mínimo. Lo siguiente queda diferido a fases posteriores:
+
+- **decide() avanzado** con action catalog completo. En Fase 5 solo SAY. → diferido a Fase 5.1.
+- **Cache local LRU**. El cache de Anthropic basta. Cache local viene si se mide que ayuda. → diferido (nice-to-have).
+- **Sonnet 4.6 expuesto en UI**. Definido en tipos pero oculto. → diferido a Fase 5.1 (post-evaluación con Haiku en gameplay real).
+- **Memory consolidation con LLM**. Resúmenes de episodios viejos via LLM. → diferido a Fase 5.1.
+- **Score de importance + pruning recencia/importancia**. Memoria existe pero sin pruning sofisticado. → diferido a Fase 5.1.
+- **Más de 3 personalidades**. Las extras post-Fase 5 si la base anda. → diferido a Fase 5.1 / Fase 7 según design narrativo.
+- **Dashboard rico de costos**. Lista simple basta. → diferido (nice-to-have).
+- **Conversation Manager** con chat persistente. → Horizonte 3.
+- **Voz TTS de respuestas LLM**. → Post-MVP, parte del rediseño UI.
 
 ---
 

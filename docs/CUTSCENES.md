@@ -276,11 +276,13 @@ Eventos no heredan porque no tiene sentido "heredar un saludo" del plano anterio
 
 ---
 
-## DSL — la próxima fase
+## DSL — implementado en Fase 4
 
-El editor es poderoso pero **lento para iterar narrativas** desde cero. Para una escena nueva, escribir kf por kf es tedioso. Por eso la siguiente fase es un **DSL declarativo**.
+El editor es poderoso pero **lento para iterar narrativas** desde cero. Para una escena nueva, escribir kf por kf es tedioso. Por eso se implementó un **DSL declarativo** en Fase 4 (cerrada 2026-04-28).
 
 **Formato decidido**: markdown narrativo (no YAML). Razón: es lo que vos vas a escribir a mano (más legible) y lo que la IA va a generar mejor (entrenada con miles de scripts).
+
+**Estado actual**: pipeline end-to-end funcional. Pendientes nice-to-have loggeados como `[PENDING-TUNING-SHOTS]` (ajuste fino de poses por shot type) y `[PENDING-FIXTURE-ZONES]` (resolver locations a fixture zones del mundo).
 
 ### Idea
 
@@ -389,6 +391,17 @@ Post-migración (módulos puros extraídos):
 - ✅ `cutscene/schema.ts` + `cutscene/migrations.ts` (Fase 3).
 - ✅ `editor/multi-sel.ts` + `editor/toolbar.ts` + `editor/playback.ts` (Fase 2 diferidos).
 - ✅ `cutscene/runtime.ts` (POV early + FX eval extraídos en Fase 2 diferidos).
+
+Post-migración Fase 4 (DSL):
+- ✅ `cutscene/parser.ts` (markdown narrativo → AST).
+- ✅ `cutscene/schema-ast.ts` (Zod schema del AST DSL).
+- ✅ `cutscene/shots.ts` (shot types puros AST → CameraKf[]).
+- ✅ `cutscene/camera-moves.ts` (dolly_in/pull_out, pan, push_in).
+- ✅ `cutscene/actions.ts` (agent actions: camina_a, mira_a, dice, anima, espera).
+- ✅ `cutscene/compiler.ts` (orquestador con simulación temporal).
+- ✅ `scripts/cutscene-compile.ts` (CLI: `npm run cutscene-compile path/to/scene.md`).
+- 43 tests Fase 4 cubriendo parser, shots, camera-moves, actions, compiler y e2e CLI.
+- Pendientes nice-to-have: `[PENDING-TUNING-SHOTS]` (ajuste fino de poses por shot type), `[PENDING-FIXTURE-ZONES]` (resolver locations a fixture zones del mundo).
 
 Pendientes (en orden de prioridad):
 - 🔲 **DSL compiler** (alta prioridad — desbloquea autoría rápida).
