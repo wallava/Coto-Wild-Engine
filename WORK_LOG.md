@@ -66,6 +66,69 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-29 15:30 - [INTERACTIVA] Cierre de pendientes Fase 5 (TASK-A JSDoc + TASK-B engine/coords)
+
+**Plan inicial**: cerrar los 2 SKIPs intencionales que dejó la sesión nocturna del 2026-04-29 antes de avanzar a Fase 5.1. Hash limpio inicial: `9370d31`.
+
+**Verificación previa TASK-2 nocturna**:
+- Diff de `b4733ed` revisado.
+- Pablo pidió lectura técnica del shape `{brainFontSize, getItemSize}` vs el `AgentTextureKit[]` del spec.
+- Veredicto: justificable. `agent-kits.ts` exporta `BRAIN_FONT_SIZE` (constante) y `getItemSize` (función). `createAgentTexture` no necesita conocer kits — recibe `left` y `right` ya elegidos. `AgentTextureKit[]` habría sido overhead inútil. Setter pattern + tipo local minimal preserva el espíritu (engine no importa game).
+- NO se revierte. Avanzar con TASK-A.
+
+### Ejecución
+
+**TASK-A: JSDoc en LLM stack** — ✅ Done
+- Tipo: CLAUDE
+- Archivos modificados: `src/llm/anthropic-client.ts` (+16), `src/llm/cost-tracker.ts` (+42).
+- `src/llm/queue.ts`: NO modificado — `getGlobalQueue` y `resetGlobalQueueForTests` ya tenían JSDoc.
+- Cobertura: clase `AnthropicClient` + métodos `complete()` y `completeStream()`. Clase `SessionCostTrackerImpl` + 7 métodos públicos (`trackCall`, `getSessionCost`, `canAffordEstimatedCall`, `isOverCap`, `onChange`, `reset`, `setCap`) + factory `createSessionCostTracker`.
+- Validación: tsc ✅, tests 338/338 ✅, smoke ✅.
+- Commit: `c257b7f`.
+- Notas: cierra TASK-5 [SKIP-NO-DIRECT-EXPORTS] de la nocturna re-targeting a módulos concretos (en vez de los `index.ts` que eran barrels o no existían).
+
+**TASK-B: Extraer engine/coords + tests** — ✅ Done
+- Tipo: CLAUDE
+- Archivos modificados: `src/cutscene/compiler.ts` (-7 líneas netas), `src/cutscene/actions.ts` (-1 línea neta).
+- Archivos nuevos: `src/engine/coords.ts`, `tests/engine/coords.test.ts`.
+- API extraída: `cellToWorld(cx, cy): WorldXYZ`, `worldToCell({x, z}): { cx, cy }`, tipo `WorldXYZ`.
+- Decisión de shape: `cellToWorld` original tenía `id: string` arg que era leak del tipo `AgentPos` (cutscene). Removí el arg para preservar layering "engine no importa cutscene"; callers ahora arman `AgentPos` con `{ id, ...cellToWorld(cx, cy) }`. Pablo aprobó el shape.
+- Callers actualizados: `compiler.ts` 3 sitios (líneas 67, 82-83 inline → `worldToCell`, 306) y `actions.ts` 1 sitio. Import `CELL` removido de `compiler.ts` (ya no se usa directo).
+- Tests: 18 casos (10 cellToWorld + 6 worldToCell + 2 roundtrip). Cubre origen, esquinas del grid, negativos, fuera de rango, redondeo .5, ignora-y, snap a centro de celda.
+- Validación: tsc ✅, tests 356/356 ✅, smoke ✅.
+- Commit: `35c9f7c`.
+- Notas: cierra TASK-3 [SKIP-NO-MODULE] de la nocturna.
+
+### Discrepancias con Codex
+
+Ninguna. Codex no se usó esta sesión — tareas chicas, mecánicas, ejecutadas por Claude solo.
+
+### Anti-loops activados
+
+Ninguno.
+
+### Hora de fin y razón
+
+15:30 — ambos pendientes cerrados, repo 100% limpio listo para Fase 5.1.
+
+### Estado final del repo
+
+- tsc: ✅ pasa
+- tests: ✅ 356/356 (338 baseline + 18 nuevos en coords)
+- smoke: ✅ pasa
+- Commits creados:
+  1. `c257b7f` — docs: JSDoc en LLM stack (anthropic-client, cost-tracker)
+  2. `35c9f7c` — refactor: extraer engine/coords + tests (18)
+- Branch main 6 commits ahead de origin (incluye los 4 nocturnos previos).
+
+### Para revisión de Pablo
+
+- Dos SKIPs nocturnos cerrados con re-targeting justificado.
+- Layering engine ↔ cutscene reforzado: `engine/coords` no conoce `AgentPos`, los callers arman el tipo.
+- Listos para entrar a Fase 5.1 con repo limpio.
+
+---
+
 ## 2026-04-29 06:37 - [NOCTURNO] Sesión autónoma post-Fase 5 (5 tasks, soft stop 12:00 PM)
 
 **Activación**: 2026-04-29 06:37 AM. Pablo se va a dormir. Trabajo autónomo Claude+Codex paralelo agresivo.
