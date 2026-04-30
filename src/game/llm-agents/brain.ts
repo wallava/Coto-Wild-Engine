@@ -51,8 +51,17 @@ export type AgentBrainOpts = {
 };
 
 export type SpeakContext = {
-  situationLines?: string[];
-  maxTokens?: number;
+  situationLines?: string[] | undefined;
+  maxTokens?: number | undefined;
+  turnContext?: { speakerId: string; text: string } | undefined;
+  skipMemoryWrite?: boolean | undefined;
+};
+
+export type SpeakResult = {
+  ok: boolean;
+  text: string;
+  cost: number;
+  reason?: string;
 };
 
 export class AgentBrain {
@@ -70,36 +79,34 @@ export class AgentBrain {
   /**
    * Habla con `target`. Si fallback se aplica, muestra canned phrase en bubble.
    */
-  async speak(target: string, context: SpeakContext = {}): Promise<void> {
+  async speak(target: string, context: SpeakContext = {}): Promise<SpeakResult> {
     const startedAt = this.now();
     const { agent, personality, client, tracker, queue, showSpeechBubble, onCallEnd } = this.opts;
 
-    const fallback = (reason: string): void => {
+    const fallback = (reason: string): SpeakResult => {
       const phrase = getFallbackPhrase(personality);
       applySayAction(agent, phrase, { showSpeechBubble });
       this.lastSpeakT = this.now();
       onCallEnd?.({ ok: false, durationMs: this.now() - startedAt, cost: 0, reason });
+      return { ok: false, text: phrase, cost: 0, reason };
     };
 
     // 1. Kill switch.
     if (!isLLMEnabled()) {
-      fallback('llm_disabled');
-      return;
+      return fallback('llm_disabled');
     }
 
     // 2. Per-agent rate limit.
     const cooldown = personality.triggers.cooldownMsAfterSpeak;
     if (this.lastSpeakT > 0 && this.now() - this.lastSpeakT < cooldown) {
-      fallback('agent_cooldown');
-      return;
+      return fallback('agent_cooldown');
     }
 
     // 3. Session cap pre-call. Resolvemos modelo efectivo (override > personality).
     const effectiveModel = getEffectiveModel(personality.model);
     const estInputTokens = Math.ceil(personality.staticSystemBlock.length / ESTIMATED_INPUT_TOKEN_DIVISOR);
     if (!tracker.canAffordEstimatedCall(effectiveModel, estInputTokens, context.maxTokens ?? DEFAULT_MAX_TOKENS)) {
-      fallback('session_cap');
-      return;
+      return fallback('session_cap');
     }
 
     // 4. Acquire queue.
@@ -108,11 +115,9 @@ export class AgentBrain {
       release = await queue.acquire(QUEUE_ACQUIRE_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof LLMError && err.code === 'QUEUE_TIMEOUT') {
-        fallback('queue_timeout');
-        return;
+        return fallback('queue_timeout');
       }
-      fallback('queue_error');
-      return;
+      return fallback('queue_error');
     }
 
     // 5. Build prompt + streaming.
@@ -122,7 +127,10 @@ export class AgentBrain {
     });
 
     const system = buildSystemBlocks(personality, { dynamicLines: context.situationLines ?? [] });
-    const userMessage = buildUserMessage(target, context);
+    const userMessage = buildUserMessage(target, {
+      situationLines: context.situationLines,
+      previousTurn: context.turnContext,
+    });
 
     let cost = 0;
 
@@ -148,40 +156,79 @@ export class AgentBrain {
       bubble.close();
 
       // 6. Memory: importance heurístico + addEpisode + relationship + prune + save.
-      const memory = this.opts.memory;
-      const summary = bubble.getText().slice(0, 200);
-      const participants = [target];
-      const prevRel = memory.relationships[target];
-      const isFirstEncounter = !prevRel || prevRel.encounterCount === 0;
-      const importance = computeEpisodeImportance({
-        isFirstEncounter,
-        summary,
-        participantCount: participants.length,
-      });
-      const tSeconds = this.now() / 1000;
-      addEpisode(memory, {
-        t: tSeconds,
-        type: 'spoke_to',
-        participants,
-        summary,
-        importance,
-      });
-      updateRelationship(memory, target, {
-        lastInteractionT: tSeconds,
-        encounterCount: (prevRel?.encounterCount ?? 0) + 1,
-      });
-      pruneOldEpisodes(memory);
-      saveAgentMemory(memory);
+      if (!context.skipMemoryWrite) {
+        const memory = this.opts.memory;
+        const summary = bubble.getText().slice(0, 200);
+        const participants = [target];
+        const prevRel = memory.relationships[target];
+        const isFirstEncounter = !prevRel || prevRel.encounterCount === 0;
+        const importance = computeEpisodeImportance({
+          isFirstEncounter,
+          summary,
+          participantCount: participants.length,
+        });
+        const tSeconds = this.now() / 1000;
+        addEpisode(memory, {
+          t: tSeconds,
+          type: 'spoke_to',
+          participants,
+          summary,
+          importance,
+        });
+        updateRelationship(memory, target, {
+          lastInteractionT: tSeconds,
+          encounterCount: (prevRel?.encounterCount ?? 0) + 1,
+        });
+        pruneOldEpisodes(memory);
+        saveAgentMemory(memory);
+      }
 
       this.lastSpeakT = this.now();
       onCallEnd?.({ ok: true, durationMs: this.now() - startedAt, cost });
+      return { ok: true, text: bubble.getText(), cost };
     } catch (err) {
       bubble.abort();
       const reason = err instanceof LLMError ? err.code : 'unknown_error';
-      fallback(reason);
+      return fallback(reason);
     } finally {
       release?.();
     }
+  }
+
+  /**
+   * Registra una conversación multi-turn como un solo episodio.
+   * @param participantIds ids de TODOS los participantes (incluye self).
+   * @param summary string ya armado con el contenido representativo.
+   * @param importance score 1-10 calculado por el orchestrator.
+   * @param turnsCount cantidad de turns (para metadata).
+   */
+  recordConversationEpisode(
+    participantIds: string[],
+    summary: string,
+    importance: number,
+    turnsCount: number,
+  ): void {
+    void turnsCount;
+    const memory = this.opts.memory;
+    const tSeconds = this.now() / 1000;
+    const others = participantIds.filter(id => id !== this.opts.agent.id);
+    addEpisode(memory, {
+      t: tSeconds,
+      type: 'spoke_to',
+      participants: others,
+      summary,
+      importance,
+    });
+    for (const otherId of others) {
+      const prev = memory.relationships[otherId];
+      updateRelationship(memory, otherId, {
+        lastInteractionT: tSeconds,
+        encounterCount: (prev?.encounterCount ?? 0) + 1,
+      });
+    }
+    pruneOldEpisodes(memory);
+    saveAgentMemory(memory);
+    // turnsCount es metadata implícita, no field de schema
   }
 
   /**

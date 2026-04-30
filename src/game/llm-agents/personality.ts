@@ -89,10 +89,16 @@ export function getFallbackPhrase(personality: Personality): string {
  */
 export function buildUserMessage(
   target: string,
-  context: { situationLines?: string[] } = {},
+  context: {
+    situationLines?: string[] | undefined;
+    previousTurn?: { speakerId: string; text: string } | undefined;
+  } = {},
 ): string {
   const lines = context.situationLines ?? [];
   const sanitized = lines.map((l) => sanitizeWorldString(l, 200)).join('\n');
   const wrapped = sanitized.length > 0 ? wrapWorldContext(sanitized) + '\n\n' : '';
-  return `${wrapped}Te encontrás con ${sanitizeWorldString(target, 50)}. Decí algo breve, en tu estilo.`;
+  const previousTurn = context.previousTurn
+    ? `[Otro agente (${sanitizeWorldString(context.previousTurn.speakerId, 50)}) acaba de decir: "${sanitizeWorldString(context.previousTurn.text, 500)}"]\n\n`
+    : '';
+  return `${previousTurn}${wrapped}Te encontrás con ${sanitizeWorldString(target, 50)}. Decí algo breve, en tu estilo.`;
 }

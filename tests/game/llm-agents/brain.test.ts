@@ -11,6 +11,7 @@ import type { Personality } from '../../../src/game/llm-agents/personality';
 import type { LLMClient } from '../../../src/llm/types';
 import { LLMError } from '../../../src/llm/types';
 import { getBubbleDurationMs } from '../../../src/game/llm-agents/bubble-duration';
+import { memoryStorageKey } from '../../../src/game/llm-agents/persistence';
 
 const mockBubble = vi.fn();
 
@@ -124,6 +125,20 @@ describe('AgentBrain.speak', () => {
     });
   });
 
+  it('speak() retorna SpeakResult ok=true text=stream output en happy path', async () => {
+    const { brain, client } = createBrain();
+    (client as MockLLMClient).queue({ text: 'Resultado ejecutivo' });
+
+    const result = await brain.speak('employee-1');
+
+    expect(result).toMatchObject({
+      ok: true,
+      text: 'Resultado ejecutivo ',
+    });
+    expect(result.cost).toBeGreaterThan(0);
+    expect(result.reason).toBeUndefined();
+  });
+
   it('uses canned fallback without calling completeStream when kill switch is on', async () => {
     localStorage.setItem(LLM_STORAGE_KEYS.killswitch, 'on');
     const { agent, brain, client } = createBrain();
@@ -133,6 +148,57 @@ describe('AgentBrain.speak', () => {
 
     expect(completeStream).not.toHaveBeenCalled();
     expectFallbackBubble(agent);
+  });
+
+  it('speak() retorna SpeakResult ok=false reason=llm_disabled cuando killswitch on', async () => {
+    localStorage.setItem(LLM_STORAGE_KEYS.killswitch, 'on');
+    const { agent, brain, client } = createBrain();
+    const completeStream = vi.spyOn(client, 'completeStream');
+
+    const result = await brain.speak('employee-1');
+
+    expect(completeStream).not.toHaveBeenCalled();
+    expectFallbackBubble(agent);
+    expect(result).toMatchObject({
+      ok: false,
+      cost: 0,
+      reason: 'llm_disabled',
+    });
+    expect(result.text).toEqual(mockBubble.mock.calls.at(-1)![1]);
+  });
+
+  it('speak() con skipMemoryWrite=true: no añade episode ni guarda memoria', async () => {
+    const { agent, brain, client, memory } = createBrain();
+    (client as MockLLMClient).queue({ text: 'Sin escritura persistente' });
+
+    const result = await brain.speak('employee-1', { skipMemoryWrite: true });
+
+    expect(result.ok).toBe(true);
+    expect(memory.episodes).toHaveLength(0);
+    expect(memory.relationships).toEqual({});
+    expect(localStorage.getItem(memoryStorageKey(agent.id))).toBeNull();
+  });
+
+  it('speak() con turnContext incluye [Otro agente...] en user message', async () => {
+    const { brain, client } = createBrain();
+    (client as MockLLMClient).queue({ text: 'Respuesta contextual' });
+    const completeStream = vi.spyOn(client, 'completeStream');
+
+    await brain.speak('employee-1', {
+      turnContext: { speakerId: 'agent-2', text: 'Necesito soporte ahora' },
+    });
+
+    expect(completeStream).toHaveBeenCalledTimes(1);
+    expect(completeStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{
+          role: 'user',
+          content: expect.stringContaining(
+            '[Otro agente (agent-2) acaba de decir: "Necesito soporte ahora"]\n\n',
+          ),
+        }],
+      }),
+    );
   });
 
   it('does not increase cost for a second speak inside the per-agent cooldown', async () => {
@@ -303,6 +369,52 @@ describe('AgentBrain.speak', () => {
       { autoCloseAfter: getBubbleDurationMs('Pattern matched ') / 1000 },
     );
     expect(memory.episodes[0]?.summary).toBe('Pattern matched ');
+  });
+});
+
+describe('AgentBrain.recordConversationEpisode', () => {
+  it('recordConversationEpisode añade 1 episode + updateRelationship + save', () => {
+    const { agent, brain, memory } = createBrain({ nowMs: () => 5_000 });
+
+    brain.recordConversationEpisode(
+      [agent.id, 'employee-1', 'employee-2'],
+      'Conversacion multi-turn representativa',
+      0.9,
+      4,
+    );
+
+    expect(memory.episodes).toHaveLength(1);
+    expect(memory.episodes[0]).toMatchObject({
+      type: 'spoke_to',
+      participants: ['employee-1', 'employee-2'],
+      summary: 'Conversacion multi-turn representativa',
+      importance: 0.9,
+      t: 5,
+    });
+    expect(memory.relationships['employee-1']).toMatchObject({
+      encounterCount: 1,
+      lastInteractionT: 5,
+    });
+    expect(memory.relationships['employee-2']).toMatchObject({
+      encounterCount: 1,
+      lastInteractionT: 5,
+    });
+    expect(localStorage.getItem(memoryStorageKey(agent.id))).not.toBeNull();
+  });
+
+  it('recordConversationEpisode filtra self del participants', () => {
+    const { agent, brain, memory } = createBrain();
+
+    brain.recordConversationEpisode(
+      [agent.id, 'employee-1'],
+      'Resumen sin self en participants',
+      0.8,
+      2,
+    );
+
+    expect(memory.episodes).toHaveLength(1);
+    expect(memory.episodes[0]!.participants).toEqual(['employee-1']);
+    expect(memory.relationships[agent.id]).toBeUndefined();
   });
 });
 
