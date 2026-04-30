@@ -10,6 +10,8 @@
  * Si AgentBrain rechaza por cooldown, el trigger igual gastó un tick. Aceptable.
  */
 
+import { areAgentsAdjacent } from './adjacency';
+
 const SOCIAL_ADJ_MS = 3000;        // 3s adyacentes para emit social.
 const SOCIAL_PAIR_COOLDOWN_MS = 60000;
 const CRISIS_NEED_THRESHOLD = 20;
@@ -29,10 +31,6 @@ export type TriggerOpts = {
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
-}
-
-function chebyshev(a: { cx: number; cy: number }, b: { cx: number; cy: number }): number {
-  return Math.max(Math.abs(a.cx - b.cx), Math.abs(a.cy - b.cy));
 }
 
 type PairState = { firstAdjT: number | null; lastTriggerT: number };
@@ -64,7 +62,7 @@ export class TriggerSystem {
         if (!cellA || !cellB) continue;
         const key = pairKey(a, b);
         seenPairs.add(key);
-        const adjacent = chebyshev(cellA, cellB) <= 1;
+        const adjacent = areAgentsAdjacent(cellA, cellB);
         const state = this.pairState.get(key);
 
         if (adjacent) {

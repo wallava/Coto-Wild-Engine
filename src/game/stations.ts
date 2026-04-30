@@ -142,6 +142,7 @@ type AgentForUpdate = AgentForStation & {
   speed: number;
   needs: Record<string, number>;
   talking: boolean;
+  activeConversationId?: string | null;
 };
 
 type UpdateAgentsOpts = {

@@ -137,6 +137,7 @@ type AgentForNeeds = {
   statusEmoji?: string | null;
   statusMesh?: import('three').Sprite | null;
   _csAgent?: boolean;
+  talking?: boolean;
 };
 
 // Tick del sistema needs. Decae, restaura según zona, avanza working timer y
@@ -153,6 +154,7 @@ export function updateAgentNeeds(
       clearAgentStatus(agent);
       continue;
     }
+    if (agent.talking) continue;
     // 1) Decay
     for (const k of NEED_TYPES) {
       const cur = agent.needs[k] ?? 100;

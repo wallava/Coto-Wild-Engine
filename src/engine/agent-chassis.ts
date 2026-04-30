@@ -52,6 +52,7 @@ export type Agent = {
   working: { prop: unknown; zoneKind: string; duration: number; elapsed: number } | null;
   _csAgent: boolean;
   talking: boolean;
+  activeConversationId: string | null;
   statusEmoji: string | null;
   statusMesh: THREE.Sprite | null;
 };
@@ -200,6 +201,7 @@ export function spawnAgent(
     working: null,
     _csAgent: !!opts.csAgent,
     talking: false,
+    activeConversationId: null,
     statusEmoji: null,
     statusMesh: null,
   };
