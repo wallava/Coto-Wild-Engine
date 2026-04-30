@@ -1,6 +1,6 @@
 /**
  * Acciones que un agente LLM puede ejecutar en el juego.
- * Implementados: SAY, EMOTE, LOOK_AT. WALK_TO sigue como stub (Fase 5.1 B-4).
+ * Implementados: SAY, EMOTE, LOOK_AT. WALK_TO sigue como stub (Fase 5.2+).
  */
 
 import { getBubbleDurationMs } from './bubble-duration';
@@ -44,7 +44,7 @@ const LOOK_AT_X_THRESHOLD = 0.001;
  * EMOTE: showSpeechBubble con autoCloseAfter=2.0s (reacción más corta que diálogo).
  * LOOK_AT: setFacing según posición relativa al target (convención legacy
  *          dx > 0 → 'left'; ver legacy.ts:4393).
- * WALK_TO: console.warn — pendiente Fase 5.1 B-4.
+ * WALK_TO: console.warn — pendiente Fase 5.2+.
  */
 export function applyAgentAction(
   agent: AgentLike,
@@ -63,7 +63,7 @@ export function applyAgentAction(
       return;
     case 'WALK_TO':
       console.warn(
-        `[agent-action] WALK_TO no implementado (Fase 5.1 B-4). agent=${agent.id} target=${action.target}`,
+        `[agent-action] WALK_TO no implementado (Fase 5.2+). agent=${agent.id} target=${action.target}`,
       );
       return;
   }

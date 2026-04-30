@@ -116,16 +116,28 @@ Capa LLM + 3 personalidades + memoria persistente + 115 tests Fase 5. GlobalLLMQ
 - ✅ **Streaming bubbles**: speech aparece word-by-word.
 - ✅ **Trigger automático de encuentros**: agentes adyacentes hablan (`triggers.ts`).
 - ✅ **Persistencia de memoria** en localStorage con cuarentena Zod.
-- 🟡 **Score de importance** + memoria episódica avanzada (diferido a Fase 5.1).
-- 🟡 **Acciones del LLM completas** (decide() con catálogo completo, diferido a Fase 5.1).
+- ✅ **Score de importance + pruning** recencia/importancia + relationship tracking (Fase 5.1).
+- 🟡 **Acciones del LLM completas** — EMOTE + LOOK_AT done; WALK_TO + decide() diferidos.
 - 🟢 Personalidades adicionales (5-10): senior arrogante, RRHH, etc.
 
-### Fase 5.1 — Encuentros con cuerpo (próxima)
+### ✅ Fase 5.1 cerrada — Encuentros con cuerpo
 
-- 🔲 `decide()` real con action catalog completo (WALK_TO, LOOK_AT, EMOTE).
-- 🔲 Memoria episódica con score de importance + pruning recencia/importancia.
+Conversaciones cara a cara entre dos agentes adyacentes con estado TALKING que pausa otros loops, orchestrator multi-turn (2-4 turns alternados), bubble proporcional al texto, output cap del LLM. 433 tests verdes.
+
+- ✅ EMOTE handler real (`actions.applyEmoteAction`).
+- ✅ LOOK_AT handler real (orientación X-relativa, convención legacy).
+- ✅ Importance scoring + relationship tracking + prune wired.
+- ✅ Sonnet 4.6 expuesto en UI (override global por agente desactivado).
+- ✅ Output cap LLM por call: 60 tokens en encuentros, 100 default. FORMATO line cacheable en 3 personalidades.
+- ✅ Bubble duration proporcional al texto: clamp 2-8s = 2000+chars\*50ms.
+- ✅ AgentState TALKING: `agent.talking` + `activeConversationId` con guards quirúrgicos en pathfinding/needs.
+- ✅ Conversation orchestrator (`conversation.startConversation`): try/finally robusto, lock atómico, cleanup match-id, re-check adjacency cada turn, cooldown 10s/60s según fail-turn-0.
+- ✅ Adjacency helper extraído (`adjacency.areAgentsAdjacent`) reusado por triggers + orchestrator.
+- ✅ TriggerSystem.setPairCooldown público con regla "no acorta cooldown existente más largo".
+- 🔲 WALK_TO real (sigue stub para Fase 5.2+).
+- 🔲 `decide()` avanzado con action catalog completo.
 - 🔲 Memory consolidation con LLM (resúmenes de episodios viejos).
-- 🔲 Sonnet 4.6 expuesto en UI (decisión post-evaluación).
+- 🔲 Conversaciones grupales 3+ (API extensible vía `participants[]`).
 - 🔲 Personalidades adicionales según design narrativo.
 
 Ver `AGENTS_LLM.md` para detalle.

@@ -26,11 +26,19 @@ Lo que ya funciona:
 - Persistencia de AgentMemory por agentId.
 - Settings UI para API key + toggle "disable all LLM".
 
-Lo que se difiere a Fase 5.1:
-- decide() real con action catalog completo (WALK_TO, LOOK_AT, EMOTE handlers).
-- Score de importance + pruning recencia/importancia.
-- Memory consolidation con LLM.
-- Sonnet 4.6 expuesto en UI.
+Lo cerrado en Fase 5.1 (encuentros con cuerpo):
+- EMOTE + LOOK_AT handlers reales.
+- Score de importance + pruning recencia/importancia + relationship tracking.
+- Sonnet 4.6 expuesto en UI con override global por agente.
+- AgentState TALKING + orchestrator de conversación multi-turn (2-4 turns).
+- Output cap LLM 60 tokens en encuentros + bubble duration proporcional al texto.
+- Adjacency helper compartido + setPairCooldown con regla no-acorta-existente.
+
+Lo que se difiere a Fase 5.2+ (post-encuentros con cuerpo):
+- WALK_TO handler real (sigue stub).
+- decide() avanzado con action catalog completo.
+- Memory consolidation con LLM (resúmenes de episodios viejos).
+- Conversaciones grupales 3+ participants (API ya extensible).
 - Personalidades adicionales (post-Fase 5).
 
 ---
@@ -381,14 +389,33 @@ Cada personalidad tiene mínimo 5 fallback phrases en su tono propio para cuando
 
 ## Triggers de encuentros
 
-Lógica determinística que dispara `AgentBrain.speak()`:
+Lógica determinística que dispara conversación o monólogo:
 
-- **Encuentro social**: dos agentes en cells adyacentes hace > 3 segundos.
+- **Encuentro social**: dos agentes en cells adyacentes hace > 3 segundos → `startConversation([a, b])`.
 - **Per-agent rate limit**: ningún agente habla más de 1 vez cada 30s.
-- **Pareja cooldown**: pareja A-B no vuelve a hablar por 60s post-encuentro.
-- **Crisis**: necesidad < 20 dispara monólogo de queja del agente afectado.
+- **Pareja cooldown**: pareja A-B no vuelve a hablar por 60s post-encuentro (10s si conversación falló en turn 0). `TriggerSystem.setPairCooldown(a, b, ms)` no acorta cooldown existente más largo.
+- **Crisis**: necesidad < 20 dispara monólogo `speak()` directo del agente afectado (sin orquestación, es soliloquio).
 
 Triggers solicitan al `GlobalLLMQueue`, no llaman directo. Esto centraliza la concurrencia.
+
+Adjacency check compartido: helper `adjacency.areAgentsAdjacent` (chebyshev <= 1) usado por `TriggerSystem` y por el orchestrator para re-verificar cada turn.
+
+---
+
+## Conversation orchestrator (Fase 5.1)
+
+Cuando un encuentro social se dispara, el orchestrator (`conversation.startConversation`) coordina una conversación multi-turn entre dos agentes adyacentes:
+
+1. **Lock atómico pre-await**: setea `agent.talking=true` y `agent.activeConversationId=conversationId` en ambos antes del primer `await`. Si ya hay lock → reject con log `[CONVERSATION-LOCK-REJECTED]`.
+2. **Orientación mutua**: `setFacing` para que cada uno mire al partner (convención legacy de B-2 LOOK_AT).
+3. **Loop de turns**: 2-4 turns alternados (random). Cada turn re-verifica adjacency. Speaker llama `brain.speak(listener, { maxTokens: 60, turnContext, skipMemoryWrite: true })`. El texto del turn anterior se inyecta en el bloque dinámico del user message como `[Otro agente acaba de decir: "..."]` — el system block (cacheable) NO se toca.
+4. **Bubble proporcional**: cada turn espera `getBubbleDurationMs(text) + 500ms` antes del siguiente speaker.
+5. **try/finally robusto**: el finally siempre limpia `talking=false` + `activeConversationId=null` SOLO si el id matchea (no pisa otra conversación posterior). Cooldown se aplica en finally vía `markPairCooldown`. Memoria se escribe al final con summary agregado y un solo episodio por participante (`brain.recordConversationEpisode`).
+6. **Async no bloqueante**: caller invoca `void startConversation(...).catch(...)`. Game loop sigue corriendo. Idempotencia garantizada por el lock atómico.
+
+Mientras `agent.talking=true`, los loops de pathfinding (`stations.updateAgents`) y needs (`updateAgentNeeds`) hacen `continue` quirúrgico. El facing queda controlado por la conversación.
+
+NO se soportan cutscenes mid-conversación LLM en Fase 5.1 (cutscenes ya tienen `_csAgent` skip propio). NO se soportan grupos 3+ aún (throw si `participants.length !== 2`); la API ya es extensible vía `participants[]` para Fase 5.2.
 
 ---
 
@@ -440,12 +467,13 @@ Razón: los tests con LLM real son no deterministas (la respuesta varía), caros
 
 Fase 5 cerrada con scope mínimo. Lo siguiente queda diferido a fases posteriores:
 
-- **decide() avanzado** con action catalog completo. En Fase 5 solo SAY. → diferido a Fase 5.1.
+- **decide() avanzado** con action catalog completo. En Fase 5 solo SAY; Fase 5.1 sumó EMOTE + LOOK_AT. WALK_TO + decide() real → diferidos a Fase 5.2+.
 - **Cache local LRU**. El cache de Anthropic basta. Cache local viene si se mide que ayuda. → diferido (nice-to-have).
-- **Sonnet 4.6 expuesto en UI**. Definido en tipos pero oculto. → diferido a Fase 5.1 (post-evaluación con Haiku en gameplay real).
-- **Memory consolidation con LLM**. Resúmenes de episodios viejos via LLM. → diferido a Fase 5.1.
-- **Score de importance + pruning recencia/importancia**. Memoria existe pero sin pruning sofisticado. → diferido a Fase 5.1.
-- **Más de 3 personalidades**. Las extras post-Fase 5 si la base anda. → diferido a Fase 5.1 / Fase 7 según design narrativo.
+- ✅ **Sonnet 4.6 expuesto en UI** — cerrado en Fase 5.1 (override global por agente).
+- **Memory consolidation con LLM**. Resúmenes de episodios viejos via LLM. → diferido a Fase 5.2+.
+- ✅ **Score de importance + pruning** recencia/importancia + relationship tracking — cerrado en Fase 5.1.
+- **Más de 3 personalidades**. Las extras post-Fase 5 si la base anda. → diferido según design narrativo.
+- **Conversaciones grupales 3+ participants**. API del orchestrator ya extensible vía `participants[]`. → diferido a Fase 5.2.
 - **Dashboard rico de costos**. Lista simple basta. → diferido (nice-to-have).
 - **Conversation Manager** con chat persistente. → Horizonte 3.
 - **Voz TTS de respuestas LLM**. → Post-MVP, parte del rediseño UI.
