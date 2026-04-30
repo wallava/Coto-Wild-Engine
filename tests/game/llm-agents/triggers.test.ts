@@ -74,6 +74,64 @@ describe('TriggerSystem.social', () => {
     state.now = 4000;
     expect(ts.tick()).toEqual([]);
   });
+
+  it('setPairCooldown setea cooldown custom (10s)', () => {
+    const state = { now: 1, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
+    const ts = new TriggerSystem(mkOpts(state));
+    ts.setPairCooldown('a', 'b', 10000);
+
+    state.now = 2;
+    expect(ts.tick()).toEqual([]);
+    state.now = 10000;
+    expect(ts.tick()).toEqual([]);
+    state.now = 10002;
+    expect(ts.tick().length).toBe(1);
+  });
+
+  it('setPairCooldown NO acorta cooldown existente más largo', () => {
+    const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
+    const ts = new TriggerSystem(mkOpts(state));
+    ts.tick();
+    state.now = 4001;
+    expect(ts.tick().length).toBe(1);
+
+    state.now = 5001;
+    ts.setPairCooldown('a', 'b', 10000);
+    state.now = 6000;
+    expect(ts.tick()).toEqual([]);
+    state.now = 63000;
+    expect(ts.tick()).toEqual([]);
+    state.now = 64002;
+    expect(ts.tick().length).toBe(1);
+  });
+
+  it('setPairCooldown SÍ extiende cooldown existente más corto', () => {
+    const state = { now: 1, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
+    const ts = new TriggerSystem(mkOpts(state));
+    ts.setPairCooldown('a', 'b', 10000);
+    state.now = 2;
+    expect(ts.tick()).toEqual([]);
+
+    state.now = 5001;
+    ts.setPairCooldown('a', 'b', 60000);
+    state.now = 5002;
+    expect(ts.tick()).toEqual([]);
+    state.now = 64000;
+    expect(ts.tick()).toEqual([]);
+    state.now = 65002;
+    expect(ts.tick().length).toBe(1);
+  });
+
+  it('T14: trigger spam mientras hay conversación-like cooldown no emite', () => {
+    const state = { now: 1, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
+    const ts = new TriggerSystem(mkOpts(state));
+    ts.setPairCooldown('a', 'b', 60000);
+
+    for (let i = 0; i < 10; i++) {
+      state.now = 2 + i * 1000;
+      expect(ts.tick()).toEqual([]);
+    }
+  });
 });
 
 describe('TriggerSystem.crisis', () => {

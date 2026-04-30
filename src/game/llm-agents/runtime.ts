@@ -7,10 +7,13 @@ import { TriggerSystem, type TriggerOpts } from './triggers';
 import { AgentBrain } from './brain';
 import { isLLMEnabled } from '../../llm/factory';
 import { loadOrCreateAgentMemory } from './persistence';
+import { startConversation } from './conversation';
+import { setAgentFacing } from '../../engine/agent-chassis';
 
 export type AgentRuntimeOpts = {
   listActiveAgentIds(): string[];
   getAgentCell(agentId: string): { cx: number; cy: number } | null;
+  getAgentPositionX(agentId: string): number | null;
   personalityFor(agentId: string): Personality | null;
   memoryFor?(agentId: string): AgentMemory;
   agentRef(agentId: string): AgentLike | null;
@@ -77,20 +80,45 @@ export function setupAgentRuntime(opts: AgentRuntimeOpts): AgentRuntimeHandle {
 
     const events: TriggerEvent[] = triggers.tick();
     for (const event of events) {
-      const speaker = event.type === 'social_encounter' ? event.speaker : event.agent;
-      const target = event.type === 'social_encounter' ? event.target : '';
-      const personality = opts.personalityFor(speaker);
-      if (!personality) continue;
+      if (event.type === 'social_encounter') {
+        const speakerAgent = opts.agentRef(event.speaker) as any;
+        const targetAgent = opts.agentRef(event.target) as any;
+        if (!speakerAgent || !targetAgent) continue;
 
-      const brain = getOrCreateBrain(speaker, personality);
-      if (!brain) continue;
+        // Defensa secundaria CONTRATO 1: chequear locks ANTES de invocar.
+        if (speakerAgent.talking || targetAgent.talking) continue;
+        if (speakerAgent.activeConversationId !== null || targetAgent.activeConversationId !== null) continue;
 
-      const context =
-        event.type === 'social_encounter'
-          ? { situationLines: ['Te encontrás con ' + event.target] }
-          : { situationLines: ['Tu necesidad ' + event.need + ' está en ' + event.level] };
+        const speakerPersonality = opts.personalityFor(event.speaker);
+        const targetPersonality = opts.personalityFor(event.target);
+        if (!speakerPersonality || !targetPersonality) continue;
+        if (!getOrCreateBrain(event.speaker, speakerPersonality)) continue;
+        if (!getOrCreateBrain(event.target, targetPersonality)) continue;
 
-      void brain.speak(target, context);
+        void startConversation({
+          participants: [speakerAgent, targetAgent],
+          brainFor: (id: string) => brains.get(id) ?? null,
+          getAgentCell: opts.getAgentCell,
+          getAgentPositionX: opts.getAgentPositionX,
+          setFacing: (a: any, dir: 'left' | 'right') => setAgentFacing(a, dir),
+          markPairCooldown: (idA: string, idB: string, ms: number) => triggers.setPairCooldown(idA, idB, ms),
+          log: (tag: string, data?: unknown) => console.log(tag, data),
+          ...(opts.nowMs ? { nowMs: opts.nowMs } : {}),
+        }).catch((err) => {
+          console.warn('[CONVERSATION-FIRE-AND-FORGET-ERROR]', err);
+        });
+        continue;
+      }
+
+      if (event.type === 'crisis') {
+        const speaker = event.agent;
+        const personality = opts.personalityFor(speaker);
+        if (!personality) continue;
+        const brain = getOrCreateBrain(speaker, personality);
+        if (!brain) continue;
+        void brain.speak('', { situationLines: ['Tu necesidad ' + event.need + ' está en ' + event.level] });
+        continue;
+      }
     }
   };
 

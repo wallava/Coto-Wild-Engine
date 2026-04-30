@@ -33,7 +33,11 @@ function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-type PairState = { firstAdjT: number | null; lastTriggerT: number };
+type PairState = {
+  firstAdjT: number | null;
+  lastTriggerT: number;
+  cooldownMs?: number;
+};
 type CrisisState = { lastTriggerT: number };
 
 export class TriggerSystem {
@@ -78,7 +82,8 @@ export class TriggerSystem {
           const adjDuration = now - state.firstAdjT;
           if (adjDuration < SOCIAL_ADJ_MS) continue;
           // Cooldown chequeo.
-          if (state.lastTriggerT > 0 && now - state.lastTriggerT < SOCIAL_PAIR_COOLDOWN_MS) continue;
+          const cooldown = state.cooldownMs ?? SOCIAL_PAIR_COOLDOWN_MS;
+          if (state.lastTriggerT > 0 && now - state.lastTriggerT < cooldown) continue;
           // Emit. Speaker arbitrario: el primero alfabéticamente.
           const speaker = a < b ? a : b;
           const target = a < b ? b : a;
@@ -115,5 +120,31 @@ export class TriggerSystem {
     }
 
     return events;
+  }
+
+  /**
+   * Setea cooldown custom al par (a, b). Llamado por orchestrator al
+   * cerrar una conversación (10s si fail-turn-0, 60s normal).
+   *
+   * REGLA: NO acorta cooldown existente más largo. Si ya hay cooldown
+   * pendiente y resta más tiempo que ms, mantiene el existente.
+   */
+  setPairCooldown(a: string, b: string, ms: number): void {
+    const key = pairKey(a, b);
+    const now = this.opts.nowMs();
+    const existing = this.pairState.get(key);
+    let finalCooldownMs = ms;
+    if (existing && existing.lastTriggerT > 0) {
+      const existingEnd = existing.lastTriggerT + (existing.cooldownMs ?? SOCIAL_PAIR_COOLDOWN_MS);
+      const newEnd = now + ms;
+      if (existingEnd > newEnd) {
+        finalCooldownMs = existingEnd - now;
+      }
+    }
+    this.pairState.set(key, {
+      firstAdjT: null,
+      lastTriggerT: now,
+      cooldownMs: finalCooldownMs,
+    });
   }
 }

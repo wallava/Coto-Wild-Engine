@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../../../src/game/llm-agents/conversation', () => ({
+  startConversation: vi.fn(() => Promise.resolve()),
+}));
+
 import { setupAgentRuntime } from '../../../src/game/llm-agents/runtime';
+import { startConversation } from '../../../src/game/llm-agents/conversation';
+import { AgentBrain, type SpeakResult } from '../../../src/game/llm-agents/brain';
 import { MockLLMClient } from '../../../src/llm/mock-client';
 import { createSessionCostTracker } from '../../../src/llm/cost-tracker';
 import { getGlobalQueue, resetGlobalQueueForTests } from '../../../src/llm/queue';
@@ -8,6 +15,8 @@ import { LLM_STORAGE_KEYS } from '../../../src/llm/storage-keys';
 
 beforeEach(() => {
   resetGlobalQueueForTests();
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
   // localStorage stub
   if (typeof globalThis.localStorage === 'undefined') {
     globalThis.localStorage = { _data: {} as any, getItem(k:string){return this._data[k]??null}, setItem(k:string,v:string){this._data[k]=v}, removeItem(k:string){delete this._data[k]}, clear(){this._data={}}, get length(){return Object.keys(this._data).length}, key(i:number){return Object.keys(this._data)[i]??null} } as any;
@@ -21,6 +30,7 @@ describe('setupAgentRuntime', () => {
     const handle = setupAgentRuntime({
       listActiveAgentIds: () => [],
       getAgentCell: () => null,
+      getAgentPositionX: () => null,
       personalityFor: () => null,
       agentRef: () => null,
       client: new MockLLMClient(),
@@ -37,6 +47,7 @@ describe('setupAgentRuntime', () => {
     const handle = setupAgentRuntime({
       listActiveAgentIds: () => [],
       getAgentCell: () => null,
+      getAgentPositionX: () => null,
       personalityFor: () => null,
       agentRef: () => null,
       client: new MockLLMClient(),
@@ -53,8 +64,9 @@ describe('setupAgentRuntime', () => {
     const handle = setupAgentRuntime({
       listActiveAgentIds: () => ['a', 'b'],
       getAgentCell: (id) => id === 'a' ? {cx:0,cy:0} : {cx:1,cy:0},
+      getAgentPositionX: (id) => id === 'a' ? 0 : 1,
       personalityFor: () => null,
-      agentRef: (id) => ({ id }),
+      agentRef: (id) => ({ id, talking: false, activeConversationId: null }),
       client,
       tracker: createSessionCostTracker(),
       queue: getGlobalQueue(),
@@ -67,18 +79,21 @@ describe('setupAgentRuntime', () => {
     handle.stop();
   });
 
-  it('llama brain.speak cuando trigger emit', async () => {
-    const client = new MockLLMClient();
-    client.queue({ text: 'Excelente punto, gente.' });
-    const tracker = createSessionCostTracker();
+  it('social_encounter event dispara startConversation, no speak directo', async () => {
+    const speakSpy = vi.spyOn(AgentBrain.prototype, 'speak');
     let now = 0;
+    const agents = new Map([
+      ['a', { id: 'a', px: 0, talking: false, activeConversationId: null }],
+      ['b', { id: 'b', px: 1, talking: false, activeConversationId: null }],
+    ]);
     const handle = setupAgentRuntime({
       listActiveAgentIds: () => ['a', 'b'],
       getAgentCell: (id) => id === 'a' ? {cx:0,cy:0} : {cx:1,cy:0},
+      getAgentPositionX: (id) => agents.get(id)?.px ?? null,
       personalityFor: () => ceoPretender,
-      agentRef: (id) => ({ id }),
-      client,
-      tracker,
+      agentRef: (id) => agents.get(id) ?? null,
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
       queue: getGlobalQueue(),
       showSpeechBubble: vi.fn(),
       tickIntervalMs: 100000,
@@ -87,8 +102,78 @@ describe('setupAgentRuntime', () => {
     await handle.tick();
     now = 4000;
     await handle.tick();
-    await new Promise(r => setTimeout(r, 50));
-    expect(tracker.getSessionCost()).toBeGreaterThan(0);
+    expect(startConversation).toHaveBeenCalledTimes(1);
+    expect(speakSpy).not.toHaveBeenCalled();
+    handle.stop();
+  });
+
+  it('crisis event sigue con speak directo', async () => {
+    const speakResult: SpeakResult = { ok: true, text: 'Necesito comer.', cost: 0.001 };
+    const speakSpy = vi.spyOn(AgentBrain.prototype, 'speak').mockResolvedValue(speakResult);
+    const handle = setupAgentRuntime({
+      listActiveAgentIds: () => ['a'],
+      getAgentCell: () => ({cx:0,cy:0}),
+      getAgentPositionX: () => 0,
+      getAgentNeed: (_id, kind) => kind === 'hunger' ? 10 : null,
+      personalityFor: () => ceoPretender,
+      agentRef: (id) => ({ id, talking: false, activeConversationId: null }),
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
+      queue: getGlobalQueue(),
+      showSpeechBubble: vi.fn(),
+      tickIntervalMs: 100000,
+      nowMs: () => 5000,
+    });
+    await handle.tick();
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+    expect(startConversation).not.toHaveBeenCalled();
+    handle.stop();
+  });
+
+  it('T21 crisis path: speak retorna SpeakResult sin romper runtime', async () => {
+    const speakResult: SpeakResult = { ok: false, text: 'Ahora no.', cost: 0, reason: 'agent_cooldown' };
+    vi.spyOn(AgentBrain.prototype, 'speak').mockResolvedValue(speakResult);
+    const handle = setupAgentRuntime({
+      listActiveAgentIds: () => ['a'],
+      getAgentCell: () => ({cx:0,cy:0}),
+      getAgentPositionX: () => 0,
+      getAgentNeed: (_id, kind) => kind === 'energy' ? 5 : null,
+      personalityFor: () => ceoPretender,
+      agentRef: (id) => ({ id, talking: false, activeConversationId: null }),
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
+      queue: getGlobalQueue(),
+      showSpeechBubble: vi.fn(),
+      tickIntervalMs: 100000,
+      nowMs: () => 5000,
+    });
+    await expect(handle.tick()).resolves.toBeUndefined();
+    handle.stop();
+  });
+
+  it('defensa secundaria: agent.talking=true → no dispara startConversation', async () => {
+    const agents = new Map([
+      ['a', { id: 'a', px: 0, talking: true, activeConversationId: null }],
+      ['b', { id: 'b', px: 1, talking: false, activeConversationId: null }],
+    ]);
+    let now = 0;
+    const handle = setupAgentRuntime({
+      listActiveAgentIds: () => ['a', 'b'],
+      getAgentCell: (id) => id === 'a' ? {cx:0,cy:0} : {cx:1,cy:0},
+      getAgentPositionX: (id) => agents.get(id)?.px ?? null,
+      personalityFor: () => ceoPretender,
+      agentRef: (id) => agents.get(id) ?? null,
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
+      queue: getGlobalQueue(),
+      showSpeechBubble: vi.fn(),
+      tickIntervalMs: 100000,
+      nowMs: () => now,
+    });
+    await handle.tick();
+    now = 4000;
+    await handle.tick();
+    expect(startConversation).not.toHaveBeenCalled();
     handle.stop();
   });
 });
