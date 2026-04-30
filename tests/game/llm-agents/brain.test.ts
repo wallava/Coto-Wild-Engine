@@ -10,6 +10,7 @@ import type { AgentLike } from '../../../src/game/llm-agents/actions';
 import type { Personality } from '../../../src/game/llm-agents/personality';
 import type { LLMClient } from '../../../src/llm/types';
 import { LLMError } from '../../../src/llm/types';
+import { getBubbleDurationMs } from '../../../src/game/llm-agents/bubble-duration';
 
 const mockBubble = vi.fn();
 
@@ -41,11 +42,12 @@ function fallbackPhrases(): string[] {
 
 function expectFallbackBubble(agent: AgentLike): void {
   expect(mockBubble).toHaveBeenCalledTimes(1);
-  expect(mockBubble).toHaveBeenCalledWith(
-    agent,
-    expect.stringMatching(new RegExp(fallbackPhrases().map(escapeRegExp).join('|'))),
-    { autoCloseAfter: 3.0 },
-  );
+  const phraseRegex = new RegExp(fallbackPhrases().map(escapeRegExp).join('|'));
+  const lastCall = mockBubble.mock.calls[mockBubble.mock.calls.length - 1]!;
+  const [calledAgent, calledText, calledOpts] = lastCall;
+  expect(calledAgent).toBe(agent);
+  expect(calledText as string).toMatch(phraseRegex);
+  expect(calledOpts).toEqual({ autoCloseAfter: getBubbleDurationMs(calledText as string) / 1000 });
 }
 
 function escapeRegExp(value: string): string {
@@ -111,7 +113,7 @@ describe('AgentBrain.speak', () => {
     expect(mockBubble).toHaveBeenLastCalledWith(
       agent,
       'Alineacion estrategica clara ',
-      { autoCloseAfter: 3.0 },
+      { autoCloseAfter: getBubbleDurationMs('Alineacion estrategica clara ') / 1000 },
     );
     expect(tracker.getSessionCost()).toBeGreaterThan(0);
     expect(memory.episodes).toHaveLength(1);
@@ -159,6 +161,32 @@ describe('AgentBrain.speak', () => {
 
     expect(completeStream).not.toHaveBeenCalled();
     expectFallbackBubble(agent);
+  });
+
+  it('speak() respeta maxTokens override del context', async () => {
+    const { brain, client } = createBrain();
+    (client as MockLLMClient).queue({ text: 'Override aplicado' });
+    const completeStream = vi.spyOn(client, 'completeStream');
+
+    await brain.speak('employee-1', { maxTokens: 60 });
+
+    expect(completeStream).toHaveBeenCalledTimes(1);
+    expect(completeStream).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTokens: 60 }),
+    );
+  });
+
+  it('speak() default maxTokens=100 si no se pasa override', async () => {
+    const { brain, client } = createBrain();
+    (client as MockLLMClient).queue({ text: 'Default aplicado' });
+    const completeStream = vi.spyOn(client, 'completeStream');
+
+    await brain.speak('employee-1');
+
+    expect(completeStream).toHaveBeenCalledTimes(1);
+    expect(completeStream).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTokens: 100 }),
+    );
   });
 
   it('uses canned fallback when the global queue acquire times out', async () => {
@@ -272,7 +300,7 @@ describe('AgentBrain.speak', () => {
     expect(mockBubble).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'agent-1' }),
       'Pattern matched ',
-      { autoCloseAfter: 3.0 },
+      { autoCloseAfter: getBubbleDurationMs('Pattern matched ') / 1000 },
     );
     expect(memory.episodes[0]?.summary).toBe('Pattern matched ');
   });

@@ -1,4 +1,5 @@
 import type { AgentLike, ShowSpeechBubbleFn } from './actions';
+import { getBubbleDurationMs } from './bubble-duration';
 
 export type StreamingBubbleController = {
   /** Append delta text. Updates bubble visible. */
@@ -14,7 +15,7 @@ export type StreamingBubbleController = {
 export type StreamingBubbleOptions = {
   /** Callback invocado cuando el usuario click en bubble (abort manual). */
   onUserAbort?: () => void;
-  /** autoCloseAfter pasado a showSpeechBubble. Default 3.0s. */
+  /** autoCloseAfter pasado a showSpeechBubble. Default: getBubbleDurationMs(text)/1000. */
   autoCloseAfter?: number;
 };
 
@@ -51,7 +52,9 @@ export function showStreamingBubble(
       closed = true;
       // Mostrar texto final con autoCloseAfter normal.
       try {
-        showSpeechBubble(agent, acc, { autoCloseAfter: opts.autoCloseAfter ?? 3.0 });
+        showSpeechBubble(agent, acc, {
+          autoCloseAfter: opts.autoCloseAfter ?? getBubbleDurationMs(acc) / 1000,
+        });
       } catch (err) {
         console.warn('[streaming-ui] final show failed:', err);
       }

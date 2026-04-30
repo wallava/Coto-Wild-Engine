@@ -11,6 +11,7 @@ import type {
   AgentLike,
   ShowSpeechBubbleFn,
 } from '../../../src/game/llm-agents/actions';
+import { getBubbleDurationMs } from '../../../src/game/llm-agents/bubble-duration';
 
 function makeAgent(id = 'agent-1'): AgentLike {
   return { id };
@@ -33,13 +34,13 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext & {
 }
 
 describe('applySayAction', () => {
-  it('invoca showSpeechBubble con texto + autoCloseAfter 3.0s', () => {
+  it('invoca showSpeechBubble con texto + autoCloseAfter proporcional', () => {
     const agent = makeAgent();
     const ctx = makeCtx();
     applySayAction(agent, 'hola mundo', ctx);
     expect(ctx.showSpeechBubble).toHaveBeenCalledOnce();
     expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'hola mundo', {
-      autoCloseAfter: 3.0,
+      autoCloseAfter: getBubbleDurationMs('hola mundo') / 1000,
     });
   });
 });
@@ -117,11 +118,13 @@ describe('applyLookAtAction', () => {
 });
 
 describe('applyAgentAction dispatcher', () => {
-  it('SAY → applySayAction (autoClose 3.0)', () => {
+  it('SAY → applySayAction (autoClose proporcional)', () => {
     const agent = makeAgent();
     const ctx = makeCtx();
     applyAgentAction(agent, { type: 'SAY', text: 'hola' }, ctx);
-    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'hola', { autoCloseAfter: 3.0 });
+    expect(ctx.showSpeechBubble).toHaveBeenCalledWith(agent, 'hola', {
+      autoCloseAfter: getBubbleDurationMs('hola') / 1000,
+    });
   });
 
   it('EMOTE → applyEmoteAction (autoClose 2.0)', () => {

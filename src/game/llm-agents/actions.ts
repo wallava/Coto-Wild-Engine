@@ -3,6 +3,8 @@
  * Implementados: SAY, EMOTE, LOOK_AT. WALK_TO sigue como stub (Fase 5.1 B-4).
  */
 
+import { getBubbleDurationMs } from './bubble-duration';
+
 export type AgentAction =
   | { type: 'SAY'; text: string }
   | { type: 'WALK_TO'; target: string }
@@ -33,13 +35,12 @@ export type ActionContext = {
   getAgentPositionX?: (agentId: string) => number | null;
 };
 
-const SAY_AUTOCLOSE_SEC = 3.0;
 const EMOTE_AUTOCLOSE_SEC = 2.0;
 const LOOK_AT_X_THRESHOLD = 0.001;
 
 /**
  * Aplica una acción de agente al objeto de agente dado.
- * SAY: showSpeechBubble con autoCloseAfter=3.0s.
+ * SAY: showSpeechBubble con duración proporcional al texto (2-8s).
  * EMOTE: showSpeechBubble con autoCloseAfter=2.0s (reacción más corta que diálogo).
  * LOOK_AT: setFacing según posición relativa al target (convención legacy
  *          dx > 0 → 'left'; ver legacy.ts:4393).
@@ -70,14 +71,16 @@ export function applyAgentAction(
 
 /**
  * Muestra el texto del agente como speech bubble.
- * autoCloseAfter: 3.0s por defecto.
+ * autoCloseAfter: duración proporcional al texto, clampada entre 2s y 8s.
  */
 export function applySayAction(
   agent: AgentLike,
   text: string,
   ctx: ActionContext,
 ): void {
-  ctx.showSpeechBubble(agent, text, { autoCloseAfter: SAY_AUTOCLOSE_SEC });
+  ctx.showSpeechBubble(agent, text, {
+    autoCloseAfter: getBubbleDurationMs(text) / 1000,
+  });
 }
 
 /**

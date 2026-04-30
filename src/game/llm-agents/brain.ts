@@ -52,6 +52,7 @@ export type AgentBrainOpts = {
 
 export type SpeakContext = {
   situationLines?: string[];
+  maxTokens?: number;
 };
 
 export class AgentBrain {
@@ -96,7 +97,7 @@ export class AgentBrain {
     // 3. Session cap pre-call. Resolvemos modelo efectivo (override > personality).
     const effectiveModel = getEffectiveModel(personality.model);
     const estInputTokens = Math.ceil(personality.staticSystemBlock.length / ESTIMATED_INPUT_TOKEN_DIVISOR);
-    if (!tracker.canAffordEstimatedCall(effectiveModel, estInputTokens, DEFAULT_MAX_TOKENS)) {
+    if (!tracker.canAffordEstimatedCall(effectiveModel, estInputTokens, context.maxTokens ?? DEFAULT_MAX_TOKENS)) {
       fallback('session_cap');
       return;
     }
@@ -130,7 +131,7 @@ export class AgentBrain {
         model: effectiveModel,
         system,
         messages: [{ role: 'user', content: userMessage }],
-        maxTokens: DEFAULT_MAX_TOKENS,
+        maxTokens: context.maxTokens ?? DEFAULT_MAX_TOKENS,
         abortSignal: abortController.signal,
         cacheTTLHint: '5m',
       });
