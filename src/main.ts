@@ -16,7 +16,7 @@ import { getGlobalQueue } from './llm/queue';
 import { setupAgentRuntime } from './game/llm-agents/runtime';
 import { ALL_PERSONALITIES, getPersonalityById } from './game/llm-agents/personalities';
 import { logCall } from './game/llm-agents/logging';
-import { showSpeechBubble } from './engine/speech';
+import { showSpeechBubble, removeAgentBubble } from './engine/speech';
 
 console.log('[AGENTS.INC] v0.3.0 fase 1.2 — bulk monolito cargado');
 
@@ -88,6 +88,7 @@ if (llmClient) {
     tracker: llmTracker,
     queue: getGlobalQueue(),
     showSpeechBubble: showSpeechBubble as any,
+    removeAgentBubble: removeAgentBubble as any,
     onCallEnd: (info) => {
       logCall({
         agentId: info.agentId,

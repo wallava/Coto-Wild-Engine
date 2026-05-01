@@ -30,7 +30,10 @@ const DEFAULT_TURN_MIN = 2;
 const DEFAULT_TURN_RANGE = 3; // 2-4 turns inclusive
 const COOLDOWN_FAIL_TURN0_MS = 10_000;
 const COOLDOWN_NORMAL_MS = 60_000;
-const TURN_END_PADDING_MS = 500;
+// Padding entre turns (post-bubble close). Subido a 2000ms en R3 fix:
+// el typewriter del bubble (cps=30) tarda en revelar texto + fade ~0.3s.
+// 500ms causaba overlap visual entre turn N y N+1.
+const TURN_END_PADDING_MS = 2000;
 const TURN_MAX_TOKENS = 60;
 const FACING_DX_THRESHOLD = 0.001;
 const POST_CONVERSATION_WAITING_S = 1.5;
@@ -59,6 +62,10 @@ export type StartConversationOpts = {
   setFacing: (agent: AgentLike, dir: AgentFacing) => void;
   /** Aplica cooldown post-conversación al par. */
   markPairCooldown: (a: string, b: string, ms: number) => void;
+  /** Remueve bubble del agente antes de cada turn (R3 fix overlap).
+   * Wired desde engine/speech.removeAgentBubble vía main.ts. Optional:
+   * tests pueden no pasarlo. */
+  removeAgentBubble?: (agent: AgentLike) => void;
   log?: ConversationLogFn;
   /** Inyectable para tests con fake timers. */
   sleep?: (ms: number) => Promise<void>;
@@ -213,6 +220,21 @@ export async function startConversation(opts: StartConversationOpts): Promise<vo
           turn: n,
         });
         break;
+      }
+
+      // R3 fix overlap: remover bubble del listener (que fue speaker en
+      // turn n-1) antes que el speaker actual cree la suya. Evita 2
+      // bubbles simultáneas de agentes distintos.
+      if (opts.removeAgentBubble) {
+        try {
+          opts.removeAgentBubble(listener);
+        } catch (err) {
+          log('[CONVERSATION-REMOVE-BUBBLE-ERROR]', {
+            conversationId,
+            listenerId: listener.id,
+            error: String(err),
+          });
+        }
       }
 
       let result: SpeakResult;

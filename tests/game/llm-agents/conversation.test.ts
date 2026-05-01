@@ -165,6 +165,45 @@ describe('startConversation', () => {
     expect(a.target).toBeNull();
   });
 
+  it('R3 fix: removeAgentBubble llamado con listener antes de cada turn', async () => {
+    const { a, b, brains } = makePair();
+    const removeAgentBubble = vi.fn();
+    const opts = makeBaseOpts({
+      participants: [a, b],
+      brains,
+      overrides: { totalTurns: 3, removeAgentBubble },
+    });
+
+    await startConversation(opts);
+
+    // Turn 0 (a habla): listener=b. Turn 1 (b habla): listener=a. Turn 2 (a): listener=b.
+    expect(removeAgentBubble).toHaveBeenCalledTimes(3);
+    expect(removeAgentBubble.mock.calls[0]?.[0]).toBe(b);
+    expect(removeAgentBubble.mock.calls[1]?.[0]).toBe(a);
+    expect(removeAgentBubble.mock.calls[2]?.[0]).toBe(b);
+  });
+
+  it('R3 fix: si removeAgentBubble throw, conversation no rompe + log error', async () => {
+    const { a, b, brains } = makePair();
+    const removeAgentBubble = vi.fn(() => { throw new Error('bubble missing'); });
+    const log = vi.fn();
+    const opts = makeBaseOpts({
+      participants: [a, b],
+      brains,
+      overrides: { removeAgentBubble, log },
+    });
+
+    await startConversation(opts);
+
+    expect(log).toHaveBeenCalledWith('[CONVERSATION-REMOVE-BUBBLE-ERROR]', expect.objectContaining({
+      listenerId: expect.any(String),
+      error: expect.stringContaining('bubble missing'),
+    }));
+    // Conversación completó turns igual.
+    expect(a.talking).toBe(false);
+    expect(b.talking).toBe(false);
+  });
+
   it('R2 fix: si conversación rejected por lock, NO toca path/target/waiting', async () => {
     const a = makeAgent({ id: 'a', cx: 0, cy: 0, x: 0, path: [[5,5]], target: [5,5], waiting: 4 });
     const b = makeAgent({ id: 'b', cx: 1, cy: 0, x: 1 });

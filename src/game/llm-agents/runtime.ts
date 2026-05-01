@@ -22,6 +22,9 @@ export type AgentRuntimeOpts = {
   tracker: SessionCostTracker;
   queue: GlobalLLMQueue;
   showSpeechBubble: ShowSpeechBubbleFn;
+  /** Wired desde engine/speech.removeAgentBubble (R3 fix overlap).
+   * Optional: si no se pasa, conversation no limpia bubbles entre turns. */
+  removeAgentBubble?: (agent: AgentLike) => void;
   nowMs?: () => number;
   tickIntervalMs?: number;
   onCallEnd?: (info: { agentId: string; ok: boolean; durationMs: number; cost: number; reason?: string }) => void;
@@ -103,6 +106,7 @@ export function setupAgentRuntime(opts: AgentRuntimeOpts): AgentRuntimeHandle {
           setFacing: (a: any, dir: 'left' | 'right') => setAgentFacing(a, dir),
           markPairCooldown: (idA: string, idB: string, ms: number) => triggers.setPairCooldown(idA, idB, ms),
           log: (tag: string, data?: unknown) => console.log(tag, data),
+          ...(opts.removeAgentBubble ? { removeAgentBubble: opts.removeAgentBubble } : {}),
           ...(opts.nowMs ? { nowMs: opts.nowMs } : {}),
         }).catch((err) => {
           console.warn('[CONVERSATION-FIRE-AND-FORGET-ERROR]', err);

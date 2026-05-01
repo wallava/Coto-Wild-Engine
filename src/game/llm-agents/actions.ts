@@ -16,11 +16,22 @@ export type AgentLike = {
   [key: string]: unknown; // mesh, etc — duck-type
 };
 
+/**
+ * Handle opaco al SpeechBubble retornado por engine/speech.showSpeechBubble.
+ * streaming-ui lo retiene y muta `fullText`/`autoCloseAfter`/`timeRevealed`
+ * directo, evitando re-create por delta (causaba typewriter restart).
+ */
+export type SpeechBubbleHandle = {
+  fullText: string;
+  autoCloseAfter: number | null;
+  timeRevealed: number | null;
+} | null | undefined;
+
 export type ShowSpeechBubbleFn = (
   agent: AgentLike,
   text: string,
-  opts?: { autoCloseAfter?: number },
-) => void;
+  opts?: { autoCloseAfter?: number; cps?: number },
+) => SpeechBubbleHandle;
 
 export type AgentFacing = 'left' | 'right';
 

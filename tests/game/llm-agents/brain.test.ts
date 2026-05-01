@@ -13,11 +13,24 @@ import { LLMError } from '../../../src/llm/types';
 import { getBubbleDurationMs } from '../../../src/game/llm-agents/bubble-duration';
 import { memoryStorageKey } from '../../../src/game/llm-agents/persistence';
 
-const mockBubble = vi.fn();
+type BubbleStub = { fullText: string; autoCloseAfter: number | null; timeRevealed: number | null };
+let lastBubbleHandle: BubbleStub | null = null;
+
+const mockBubbleImpl = (_agent: unknown, text: string, opts?: { autoCloseAfter?: number }) => {
+  lastBubbleHandle = {
+    fullText: text,
+    autoCloseAfter: opts?.autoCloseAfter ?? null,
+    timeRevealed: null,
+  };
+  return lastBubbleHandle;
+};
+const mockBubble = vi.fn(mockBubbleImpl);
 
 beforeEach(() => {
   resetGlobalQueueForTests();
   mockBubble.mockReset();
+  mockBubble.mockImplementation(mockBubbleImpl);
+  lastBubbleHandle = null;
   if (typeof globalThis.localStorage === 'undefined') {
     globalThis.localStorage = {
       _data: {} as Record<string, string>,
@@ -111,10 +124,13 @@ describe('AgentBrain.speak', () => {
 
     await brain.speak('employee-1');
 
-    expect(mockBubble).toHaveBeenLastCalledWith(
-      agent,
-      'Alineacion estrategica clara ',
-      { autoCloseAfter: getBubbleDurationMs('Alineacion estrategica clara ') / 1000 },
+    // R3 fix: streaming-ui crea bubble UNA vez con texto vacío y muta
+    // handle.fullText/autoCloseAfter después. mockBubble.calls = 1 (initial).
+    expect(mockBubble).toHaveBeenCalledTimes(1);
+    expect(mockBubble).toHaveBeenCalledWith(agent, ' ', { autoCloseAfter: 999 });
+    expect(lastBubbleHandle?.fullText).toBe('Alineacion estrategica clara ');
+    expect(lastBubbleHandle?.autoCloseAfter).toBe(
+      getBubbleDurationMs('Alineacion estrategica clara ') / 1000,
     );
     expect(tracker.getSessionCost()).toBeGreaterThan(0);
     expect(memory.episodes).toHaveLength(1);
@@ -164,7 +180,7 @@ describe('AgentBrain.speak', () => {
       cost: 0,
       reason: 'llm_disabled',
     });
-    expect(result.text).toEqual(mockBubble.mock.calls.at(-1)![1]);
+    expect(result.text).toEqual(lastBubbleHandle?.fullText);
   });
 
   it('speak() con skipMemoryWrite=true: no añade episode ni guarda memoria', async () => {
@@ -323,21 +339,19 @@ describe('AgentBrain.speak', () => {
     expect(tracker.getSessionCost()).toBeGreaterThan(firstCost);
   });
 
-  it('passes the correct agent object to every streaming bubble call', async () => {
+  it('R3 fix: streaming crea bubble una sola vez y muta handle.fullText incrementalmente', async () => {
     const { agent, brain, client } = createBrain({ agentId: 'ceo-1' });
     (client as MockLLMClient).queue({ text: 'Una dos' });
 
     await brain.speak('employee-1');
 
-    expect(mockBubble).toHaveBeenCalledTimes(3);
-    for (const call of mockBubble.mock.calls) {
-      expect(call[0]).toBe(agent);
-    }
-    expect(mockBubble.mock.calls.map(call => call[1])).toEqual([
-      'Una ',
-      'Una dos ',
-      'Una dos ',
-    ]);
+    expect(mockBubble).toHaveBeenCalledTimes(1);
+    expect(mockBubble.mock.calls[0]?.[0]).toBe(agent);
+    // Texto final acumulado en handle (NO en mockBubble.calls).
+    expect(lastBubbleHandle?.fullText).toBe('Una dos ');
+    // close() seteó timeRevealed + autoClose proporcional.
+    expect(lastBubbleHandle?.timeRevealed).not.toBeNull();
+    expect(lastBubbleHandle?.autoCloseAfter).toBe(getBubbleDurationMs('Una dos ') / 1000);
   });
 
   it('uses canned fallback when completeStream throws', async () => {
@@ -363,10 +377,10 @@ describe('AgentBrain.speak', () => {
 
     await brain.speak('employee-special');
 
-    expect(mockBubble).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: 'agent-1' }),
-      'Pattern matched ',
-      { autoCloseAfter: getBubbleDurationMs('Pattern matched ') / 1000 },
+    // R3 fix: handle.fullText acumula texto final; mockBubble solo init call.
+    expect(lastBubbleHandle?.fullText).toBe('Pattern matched ');
+    expect(lastBubbleHandle?.autoCloseAfter).toBe(
+      getBubbleDurationMs('Pattern matched ') / 1000,
     );
     expect(memory.episodes[0]?.summary).toBe('Pattern matched ');
   });
