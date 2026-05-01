@@ -4,7 +4,7 @@
 
 ## Frame del MVP
 
-Este documento describe la capa de **AI Orchestration** dentro del MVP. Son herramientas que **Pablo usa para acelerar el desarrollo de AGENTS.INC**, no features para usuarios externos.
+Este documento describe la capa de **AI Orchestration** dentro del MVP. Son herramientas que **Pablo usa para acelerar el desarrollo de contenido sobre CWE en el MVP**, no features para usuarios externos.
 
 Si en algún momento te encuentras pensando "esto sería bueno para usuarios futuros", parate. Eso es horizonte 3, no MVP. Ver `MVP_SCOPE.md`.
 
@@ -83,7 +83,7 @@ Razones:
 - **Conversation Manager** requiere memoria persistente y chat lateral. No vale el costo en MVP. Pablo puede usar request-response con los tres generators para iterar.
 - **Object Builder con IA** genera meshes 3D. Requiere pipeline de mesh generation + optimización + storage. Horizonte 3.
 
-Los tres que SÍ están son los que **directamente aceleran el desarrollo de AGENTS.INC en el MVP**. El resto son features de producto.
+Los tres que SÍ entran al MVP son los que **directamente aceleran el desarrollo de contenido (personalidades, cutscenes, mundos) sobre CWE**. El resto son features de producto.
 
 ---
 
