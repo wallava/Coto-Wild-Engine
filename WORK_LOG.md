@@ -66,6 +66,58 @@ Este archivo **no se sincroniza con el Project en Claude.ai** — es un log loca
 
 <!-- Las entradas reales empiezan acá, en orden cronológico inverso (más reciente primero) -->
 
+## 2026-04-30 00:30 - [INTERACTIVA] Fase 5.1 fix R1-R4 + cierre
+
+**Plan inicial**: validación visual Fase 5.1 falló con 4 problemas reportados por Pablo. Plan en 4 rounds aprobado tras adversarial review de Codex (incluyó B2: agregar fix talking-en-crisis al R1 por agravamiento de bug pre-existente al cablear getAgentNeed).
+
+**Review loop**: 1 round de adversarial review con Codex pre-ejecución. Codex flagged BLOCKING: B1 (getAgentNeed sin cablear, ya en plan) + B2 (crisis sin lock talking, NO estaba en plan). Pablo aprobó incluir B2 al R1.
+
+**Plan final**: 4 rounds secuenciales. Cada round: tsc + tests + smoke + git diff stat → aprobación Pablo → commit. Vite vivo entre rounds para validación visual.
+
+### Tasks
+
+**ROUND 1 (commit `99c0545`)** — adjacency window + crisis cabling + crisis lock
+- Archivos: `triggers.ts`, `stations.ts`, `main.ts`, `runtime.ts` + tests `triggers.test.ts`, `runtime.test.ts`, NUEVO `stations.test.ts`.
+- SOCIAL_ADJ_MS 3000→2000ms. handleAgentLanded waiting=5s si hay otro agente adyacente. main.ts cablea getAgentNeed. runtime crisis con lock atómico talking=true + path/target limpios + finally restaura + waiting=1.5s.
+- Validación: tsc ✅, 441/441 tests ✅, smoke ✅.
+
+**ROUND 2 (commit `74bc2ab`)** — path cleanup en conversación
+- Archivos: `conversation.ts` + tests `conversation.test.ts`.
+- Post-lock: path=[], target=null, waiting=0 ambos participantes. Finally: waiting=1.5s solo cuando match conversationId.
+- Validación: tsc ✅, 443/443 tests ✅, smoke ✅.
+
+**ROUND 3 (commit `ce0becb`)** — overlap burbujas + close sin rebuild
+- Archivos: `actions.ts`, `streaming-ui.ts` (rewrite), `conversation.ts`, `runtime.ts`, `main.ts` + tests `brain.test.ts`, `conversation.test.ts`, NUEVO `streaming-ui.test.ts`.
+- ShowSpeechBubbleFn retorna SpeechBubbleHandle opaco mutable. streaming-ui crea bubble UNA vez con placeholder ' ', muta handle.fullText en append, muta handle.autoCloseAfter+timeRevealed en close. TURN_END_PADDING_MS 500→2000ms. removeAgentBubble inyectado para limpiar listener antes de cada turn.
+- Hot-fix mid-round: speech.ts:227 rechaza text='' → handle null → bubbles invisibles. Fix: placeholder ' ' (espacio único). Sin tocar engine/speech (riesgo cutscenes legacy).
+- Validación: tsc ✅, 450/450 tests ✅, smoke ✅.
+
+**ROUND 4 (commit `907ed86`)** — longitud + voseo + few-shots
+- Archivos: `conversation.ts`, 3 personalidades + tests `personalities.test.ts`.
+- TURN_MAX_TOKENS 60→30 defensa server-side. 3 personalidades reescritas con voseo→tuteo total + FORMATO "MÁXIMO 8 palabras" cacheable + examples/fallbackPhrases ≤8 palabras.
+- Validación: tsc ✅, 453/453 tests ✅, smoke ✅.
+
+### Pendientes loggeados (diferidos a Fase 5.1.5)
+
+- `[PENDING-ADJACENCY-TUNING]`: difícil triggerar adjacency en gameplay normal. Funciona cuando se cumple condición pero alcanzarla es estrecho con autonomy actual.
+- `[PENDING-AUTONOMOUS-SPEAK-INTEGRATION]`: cuando agentes hablan sin forzar adyacencia, bubbles se cancelan rápido y no se contestan entre sí. Hipótesis: paths de speak() que no usan orchestrator (probablemente crisis trigger).
+
+### Validación visual Pablo
+
+Funcionalmente Fase 5.1 pasa: orchestrator multi-turn, bubbles cortas, no overlap, cleanup, cooldown, waiting. Confirmado cuando se logra triggerar.
+
+### Estado final
+
+- Tests: 453 pass (433 pre-fix + 20 nuevos).
+- 4 rounds de fix commiteados localmente: `99c0545`, `74bc2ab`, `ce0becb`, `907ed86`.
+- Docs actualizados en commit de cierre: `docs/AGENTS_LLM.md`, `docs/ROADMAP.md`.
+
+### Rechazos justificados
+
+- Pablo rechazó tocar `engine/speech.ts:227` (relajar `if (!text)` a aceptar empty) por riesgo de romper cutscenes legacy. Fix alternativo: placeholder ' ' en streaming-ui. Razón documentada en commit `ce0becb`.
+
+---
+
 ## 2026-04-29 15:30 - [INTERACTIVA] Cierre de pendientes Fase 5 (TASK-A JSDoc + TASK-B engine/coords)
 
 **Plan inicial**: cerrar los 2 SKIPs intencionales que dejó la sesión nocturna del 2026-04-29 antes de avanzar a Fase 5.1. Hash limpio inicial: `9370d31`.

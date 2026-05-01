@@ -26,13 +26,19 @@ Lo que ya funciona:
 - Persistencia de AgentMemory por agentId.
 - Settings UI para API key + toggle "disable all LLM".
 
-Lo cerrado en Fase 5.1 (encuentros con cuerpo):
+Lo cerrado en Fase 5.1 (encuentros con cuerpo) — incluye fix R1-R4:
 - EMOTE + LOOK_AT handlers reales.
 - Score de importance + pruning recencia/importancia + relationship tracking.
 - Sonnet 4.6 expuesto en UI con override global por agente.
 - AgentState TALKING + orchestrator de conversación multi-turn (2-4 turns).
-- Output cap LLM 60 tokens en encuentros + bubble duration proporcional al texto.
-- Adjacency helper compartido + setPairCooldown con regla no-acorta-existente.
+- Output cap LLM 30 tokens en encuentros (R4 fix; era 60 → defensa server-side dura) + bubble duration proporcional al texto.
+- Adjacency helper compartido + setPairCooldown con regla no-acorta-existente. SOCIAL_ADJ_MS bajado 3000→2000ms (R1 fix).
+- Streaming bubble single-handle (R3 fix): sin re-create por delta, sin typewriter restart, removeAgentBubble inyectado para evitar overlap cross-agente.
+- Path/target cleanup post-lock + waiting=1.5s post-talk (R2 fix): evita que el agente retome walk inmediato al cerrar la conversación.
+- Crisis path con lock paridad orchestrator (R1 fix): talking=true durante monólogo, finally restaura.
+- getAgentNeed cableado en main.ts (R1 fix; antes crisis trigger nunca disparaba en prod).
+- handleAgentLanded con waiting=5s si hay otro agente adyacente (R1 fix): da ventana al trigger social_encounter.
+- Voseo→tuteo en 3 personalidades + FORMATO "MÁXIMO 8 palabras" cacheable (R4 fix). Examples y fallbackPhrases ≤8 palabras. Cumple CLAUDE.md.
 
 Lo que se difiere a Fase 5.2+ (post-encuentros con cuerpo):
 - WALK_TO handler real (sigue stub).
@@ -40,6 +46,10 @@ Lo que se difiere a Fase 5.2+ (post-encuentros con cuerpo):
 - Memory consolidation con LLM (resúmenes de episodios viejos).
 - Conversaciones grupales 3+ participants (API ya extensible).
 - Personalidades adicionales (post-Fase 5).
+
+Observations de gameplay diferidas a **Fase 5.1.5** (tuning de encuentros autónomos):
+- `[PENDING-ADJACENCY-TUNING]`: difícil triggerar adjacency en gameplay normal. Funciona cuando se cumple condición pero alcanzarla es estrecho con autonomy actual.
+- `[PENDING-AUTONOMOUS-SPEAK-INTEGRATION]`: cuando agentes hablan sin forzar adyacencia, bubbles se cancelan rápido y no se contestan entre sí. Hipótesis: paths de speak() que no usan orchestrator (probablemente crisis trigger).
 
 ---
 

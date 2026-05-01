@@ -122,23 +122,32 @@ Capa LLM + 3 personalidades + memoria persistente + 115 tests Fase 5. GlobalLLMQ
 
 ### ✅ Fase 5.1 cerrada — Encuentros con cuerpo
 
-Conversaciones cara a cara entre dos agentes adyacentes con estado TALKING que pausa otros loops, orchestrator multi-turn (2-4 turns alternados), bubble proporcional al texto, output cap del LLM. 433 tests verdes.
+Conversaciones cara a cara entre dos agentes adyacentes con estado TALKING que pausa otros loops, orchestrator multi-turn (2-4 turns alternados), bubble proporcional al texto, output cap del LLM. **453 tests verdes** post-fix R1-R4.
 
 - ✅ EMOTE handler real (`actions.applyEmoteAction`).
 - ✅ LOOK_AT handler real (orientación X-relativa, convención legacy).
 - ✅ Importance scoring + relationship tracking + prune wired.
 - ✅ Sonnet 4.6 expuesto en UI (override global por agente desactivado).
-- ✅ Output cap LLM por call: 60 tokens en encuentros, 100 default. FORMATO line cacheable en 3 personalidades.
+- ✅ Output cap LLM por call: 30 tokens en encuentros (R4 fix), 100 default. FORMATO "MÁXIMO 8 palabras" cacheable en 3 personalidades.
 - ✅ Bubble duration proporcional al texto: clamp 2-8s = 2000+chars\*50ms.
 - ✅ AgentState TALKING: `agent.talking` + `activeConversationId` con guards quirúrgicos en pathfinding/needs.
-- ✅ Conversation orchestrator (`conversation.startConversation`): try/finally robusto, lock atómico, cleanup match-id, re-check adjacency cada turn, cooldown 10s/60s según fail-turn-0.
-- ✅ Adjacency helper extraído (`adjacency.areAgentsAdjacent`) reusado por triggers + orchestrator.
+- ✅ Conversation orchestrator (`conversation.startConversation`): try/finally robusto, lock atómico, cleanup match-id, re-check adjacency cada turn, cooldown 10s/60s según fail-turn-0, path/target cleanup post-lock + waiting=1.5s post-talk (R2 fix).
+- ✅ Adjacency helper extraído (`adjacency.areAgentsAdjacent`) reusado por triggers + orchestrator. SOCIAL_ADJ_MS bajado a 2000ms (R1 fix).
 - ✅ TriggerSystem.setPairCooldown público con regla "no acorta cooldown existente más largo".
+- ✅ Streaming bubble single-handle (R3 fix): showSpeechBubble UNA vez con placeholder ' ', subsequent appends mutan handle.fullText. close() muta autoCloseAfter+timeRevealed sin re-crear. removeAgentBubble inyectado para limpiar listener antes de cada turn (no overlap cross-agente).
+- ✅ Crisis path con lock paridad orchestrator (R1 fix): talking=true + path/target limpios + finally restaura + waiting=1.5s.
+- ✅ getAgentNeed cableado en main.ts (era bug B1 detectado en review: crisis nunca disparaba en prod).
+- ✅ handleAgentLanded con waiting=5s si hay otro agente adyacente (R1 fix): da ventana para acumular SOCIAL_ADJ_MS.
+- ✅ Voseo→tuteo en 3 personalidades (R4 fix): cumple CLAUDE.md ("español colombiano, sin voseo rioplatense"). Examples y fallbackPhrases ≤8 palabras.
 - 🔲 WALK_TO real (sigue stub para Fase 5.2+).
 - 🔲 `decide()` avanzado con action catalog completo.
 - 🔲 Memory consolidation con LLM (resúmenes de episodios viejos).
 - 🔲 Conversaciones grupales 3+ (API extensible vía `participants[]`).
 - 🔲 Personalidades adicionales según design narrativo.
+
+**Observations de gameplay diferidas a Fase 5.1.5 (tuning de encuentros autónomos):**
+- `[PENDING-ADJACENCY-TUNING]`: difícil triggerar adjacency en gameplay normal. Funciona cuando se cumple condición pero alcanzarla es estrecho con autonomy actual.
+- `[PENDING-AUTONOMOUS-SPEAK-INTEGRATION]`: cuando agentes hablan sin forzar adyacencia, bubbles se cancelan rápido y no se contestan entre sí. Hipótesis: paths de speak() que no usan orchestrator (probablemente crisis trigger).
 
 Ver `AGENTS_LLM.md` para detalle.
 
