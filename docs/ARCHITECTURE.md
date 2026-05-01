@@ -13,7 +13,7 @@ Si en algún momento te encuentras justificando complejidad solo con "los usuari
 
 ---
 
-## Estado actual de migración (2026-04-29)
+## Estado actual de migración (2026-05-01)
 
 **60+ módulos extraídos** del monolito. legacy.ts: 11,941 → ~5,800 líneas (~50% migrado, ~50% pendiente). Schemas Zod cerrados (Fase 3). DSL de cutscenes cerrado (Fase 4). Capa LLM + agentes con LLM real cerrada (Fase 5).
 
@@ -539,7 +539,7 @@ Vite + TS strict + tooling configurado. Monolito en `docs/reference/`.
 Bulk del monolito a `legacy.ts` con `@ts-nocheck`. Imports CDN → ES modules pinneados.
 
 ### Fase 2 — Separación inicial 🟠 (en curso, ~50%)
-40+ módulos extraídos. Pendientes grandes:
+60+ módulos extraídos. Pendientes grandes:
 - Cutscene editor lifecycle (ceOpen/ceClose)
 - Runtime evaluation (ceUpdate, partir por subsistema)
 - Persistence/undo del editor
@@ -560,8 +560,8 @@ Parser markdown → AST → cutscene model. Shot types (wide_establishing, mediu
 ### Fase 5 — Capa LLM + agentes con LLM real ✅ (cerrada)
 Capa LLM en `src/llm/` (types, anthropic-client, mock-client, models, sanitize, cost, cost-tracker, queue, factory). AgentBrain.speak() con streaming. 3 personalidades concretas: ceo-pretender, junior-overconfident, intern-anxious. AgentMemory con persistencia + cuarentena Zod. Triggers de encuentros + crisis. Settings UI integrado al toolbar (API key + cap + disable LLM). 115 tests Fase 5. Validación visual end-to-end OK. Pendiente nice-to-have: `[PENDING-PERSONALITY-TUNING]`.
 
-### Fase 5.1 — Encuentros con cuerpo (próxima)
-decide() real con action catalog completo (WALK_TO, LOOK_AT, EMOTE handlers). Score de importance + memoria episódica avanzada. Memory consolidation con LLM. Sonnet 4.6 expuesto en UI tras evaluación. Personalidades adicionales según design narrativo.
+### Fase 5.1 — Encuentros con cuerpo ✅ cerrada
+EMOTE + LOOK_AT handlers reales. Importance scoring + relationship tracking + prune wired. Sonnet 4.6 expuesto en UI (override global). Conversation orchestrator multi-turn (lock atómico, cleanup match-id, cooldown 10s/60s). AgentState TALKING + path/target cleanup post-lock + waiting=1.5s post-talk. Streaming bubble single-handle (sin typewriter restart, sin overlap cross-agente). Crisis path con lock paridad orchestrator. SOCIAL_ADJ_MS bajado 3000→2000ms. Voseo→tuteo + FORMATO "MÁXIMO 8 palabras" cacheable en 3 personalidades. Post-fix R1-R4: 453 tests verdes. Diferidos a Fase 5.1.5: tuning de encuentros autónomos ([PENDING-ADJACENCY-TUNING], [PENDING-AUTONOMOUS-SPEAK-INTEGRATION]). WALK_TO real + decide() avanzado + memory consolidation + grupos 3+ + personalidades adicionales diferidos a Fase 5.2+.
 
 ### Fase 6 — AI Orchestration
 Tres generators: Personality, Cutscene, World Iterator.
