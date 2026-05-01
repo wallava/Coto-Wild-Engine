@@ -4,10 +4,10 @@
 
 ## Frame del MVP
 
-Esta arquitectura está pensada para el MVP (herramienta personal de Pablo para AGENTS.INC). Las decisiones que parecen "exageradas" — separación estricta de capas, schemas Zod, tests críticos, APIs públicas explícitas — pagan en dos horizontes:
+Esta arquitectura está pensada para el MVP de CWE — el motor terminado como herramienta funcional, con AGENTS.INC adentro como scaffolding de validación. Las decisiones que parecen "exageradas" — separación estricta de capas, schemas Zod, tests críticos, APIs públicas explícitas — pagan en dos horizontes:
 
-1. **Inmediato**: Pablo desarrolla AGENTS.INC más rápido sin pelearse con un monolito.
-2. **Eventual**: cuando CWE eventualmente se convierta en producto público (horizonte 3), el refactor es mínimo.
+1. **Inmediato**: Pablo construye AGENTS.INC sobre CWE sin pelearse con un monolito.
+2. **Eventual**: cuando CWE se convierta en producto público (horizonte 3), el refactor es mínimo porque las capas ya están limpias.
 
 Si en algún momento te encuentras justificando complejidad solo con "los usuarios futuros van a necesitar esto", para. Esa lógica es trampa. Ver `MVP_SCOPE.md`.
 
