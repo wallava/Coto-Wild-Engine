@@ -8,11 +8,11 @@ Este proyecto vive en tres horizontes temporales. Cada uno tiene un propósito d
 
 ### Horizonte 1 — MVP (lo que estamos construyendo ahora)
 
-**Una herramienta personal de Pablo para desarrollar AGENTS.INC.**
+**Coto Wild Engine (CWE) terminado como herramienta funcional, con AGENTS.INC adentro como scaffolding de validación.**
 
-Sin usuarios externos. Sin backend. Sin onboarding. Sin marketplace. Sin auth. Sin billing. Sin moderación. Sin métricas, sin features sociales, sin mecánicas de retención. Single-user, single-machine, tools-for-Pablo.
+Sin usuarios externos. Sin backend. Sin onboarding. Sin marketplace. Sin auth. Sin billing. Sin moderación. Sin métricas, sin features sociales, sin mecánicas de retención. Single-user, single-machine, tools-for-Pablo. AGENTS.INC dentro del MVP es contenido mínimo de validación — no es el juego publishable. Eso es horizonte 2. Ver `MVP_SCOPE.md` para alcance estricto.
 
-El éxito del MVP se mide así: **¿Pablo puede desarrollar AGENTS.INC más rápido y mejor con esta herramienta que sin ella?** Si la respuesta es sí, el MVP funcionó. Si no, hay que arreglarlo antes de avanzar.
+El éxito del MVP se mide así: **¿CWE está listo como herramienta para que Pablo empiece a construir AGENTS.INC en serio (post-MVP)?** Si la respuesta es sí, el MVP funcionó. Si no, hay que arreglarlo antes de avanzar.
 
 Ver `MVP_SCOPE.md` para qué SÍ y qué NO entra en el MVP.
 
