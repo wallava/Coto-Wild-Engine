@@ -267,6 +267,8 @@ Tags que aparecen en código y docs. Si los ves en una sesión, sabé que **no s
 - `[PENDING-PERSONALITY-TUNING]` (Fase 5): tono y matices de personalidades. Post-gameplay design.
 - `[PENDING-ADJACENCY-TUNING]` (Fase 5.1.5): difícil triggerar adjacency en gameplay normal.
 - `[PENDING-AUTONOMOUS-SPEAK-INTEGRATION]` (Fase 5.1.5): bubbles se cancelan cuando hablan sin forzar adyacencia.
+- `[PENDING-CWE-CAPS-CI]` (post-Fase 5): script CI que verifica símbolos 🟢/🟡 de `CWE_CAPABILITIES.md` contra exports reales en `src/`. Whitelist para mutaciones directas y APIs internas no exportadas.
+- `[PENDING-HEADER-VALIDATION-CI]` (post-Fase 5): cuando se implemente el script CI de `[PENDING-CWE-CAPS-CI]`, incluir también validación automática de headers `<!-- ARCHIVO: NOMBRE.md -->` en todos los docs. Esto previene regresiones como la de MVP_SCOPE.md detectada en Fase 4 (header faltante post-split de commit en Fase 2).
 
 ### Lecciones
 
