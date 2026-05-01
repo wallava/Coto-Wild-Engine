@@ -55,7 +55,7 @@ El monolito original (HTML de ~12,500 líneas) está en `docs/reference/three-pr
 - Zod (schema validation + migrations)
 - Vitest (tests)
 - i18next (cuando llegue, es/en desde el setup)
-- Anthropic API (cuando llegue capa LLM)
+- Anthropic API (Claude Haiku 4.5 / Sonnet 4.6) — capa LLM cerrada en Fase 5
 
 ---
 
