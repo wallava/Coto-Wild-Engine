@@ -130,6 +130,69 @@ describe('setupAgentRuntime', () => {
     handle.stop();
   });
 
+  it('crisis lock: setea talking=true + path/target limpios; finally restaura + waiting=1.5', async () => {
+    let resolveSpeak: ((r: SpeakResult) => void) | null = null;
+    vi.spyOn(AgentBrain.prototype, 'speak').mockImplementation(
+      () => new Promise<SpeakResult>(res => { resolveSpeak = res; }),
+    );
+    const agent: any = {
+      id: 'a',
+      talking: false,
+      activeConversationId: null,
+      path: [[1,1],[2,2]],
+      target: [2,2],
+      waiting: 0,
+    };
+    const handle = setupAgentRuntime({
+      listActiveAgentIds: () => ['a'],
+      getAgentCell: () => ({cx:0,cy:0}),
+      getAgentPositionX: () => 0,
+      getAgentNeed: (_id, kind) => kind === 'hunger' ? 10 : null,
+      personalityFor: () => ceoPretender,
+      agentRef: () => agent,
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
+      queue: getGlobalQueue(),
+      showSpeechBubble: vi.fn(),
+      tickIntervalMs: 100000,
+      nowMs: () => 5000,
+    });
+    await handle.tick();
+    // Inmediatamente post-tick: locks aplicados.
+    expect(agent.talking).toBe(true);
+    expect(agent.path).toEqual([]);
+    expect(agent.target).toBeNull();
+    // Resolver speak → finally limpia talking + setea waiting.
+    resolveSpeak!({ ok: true, text: 'X', cost: 0 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(agent.talking).toBe(false);
+    expect(agent.waiting).toBe(1.5);
+    handle.stop();
+  });
+
+  it('crisis: si agent.talking=true ya, no re-dispara speak', async () => {
+    const speakSpy = vi.spyOn(AgentBrain.prototype, 'speak').mockResolvedValue({ ok: true, text: 'x', cost: 0 } as SpeakResult);
+    const agent: any = { id: 'a', talking: true, activeConversationId: null };
+    const handle = setupAgentRuntime({
+      listActiveAgentIds: () => ['a'],
+      getAgentCell: () => ({cx:0,cy:0}),
+      getAgentPositionX: () => 0,
+      getAgentNeed: (_id, kind) => kind === 'hunger' ? 10 : null,
+      personalityFor: () => ceoPretender,
+      agentRef: () => agent,
+      client: new MockLLMClient(),
+      tracker: createSessionCostTracker(),
+      queue: getGlobalQueue(),
+      showSpeechBubble: vi.fn(),
+      tickIntervalMs: 100000,
+      nowMs: () => 5000,
+    });
+    await handle.tick();
+    expect(speakSpy).not.toHaveBeenCalled();
+    handle.stop();
+  });
+
   it('T21 crisis path: speak retorna SpeakResult sin romper runtime', async () => {
     const speakResult: SpeakResult = { ok: false, text: 'Ahora no.', cost: 0, reason: 'agent_cooldown' };
     vi.spyOn(AgentBrain.prototype, 'speak').mockResolvedValue(speakResult);

@@ -16,6 +16,7 @@ import { findPath } from '../engine/pathfinding';
 import { GRID_W, GRID_H } from '../engine/state';
 import type { PropAny } from '../engine/world';
 import { setAgentFacing, syncAgentMesh } from '../engine/agent-chassis';
+import { getAgents } from '../engine/agents-state';
 import { ROOM_REQUIREMENTS, checkZoneRequirements } from './zone-catalog';
 import { WORKING_DURATION, getAgentMostCriticalNeed, findZoneForNeed } from './needs';
 
@@ -26,6 +27,10 @@ const RETRY_PATH_DELAY_S = 1;
 const FACING_DEADBAND = 0.01;
 
 const CONFUSED_THOUGHT_DURATION_S = 2.5;
+// Pausa post-landing si hay otro agente adyacente — da window al
+// trigger social_encounter (SOCIAL_ADJ_MS=2000ms) para acumular tiempo
+// continuo sin que pickRandomDestination los disperse.
+const SOCIAL_PAUSE_AFTER_LAND_S = 5;
 
 type AgentForStation = {
   cx: number;
@@ -56,12 +61,29 @@ export function startWorkingState(
   eventBus.emit('agentReachedStation', { agent, prop, zoneKind });
 }
 
+// ¿Hay otro agente en celda adyacente (chebyshev <= 1, excluye self)?
+// Lee del singleton getAgents(). Default vacío en tests sin setup.
+function hasAdjacentAgent(agent: AgentForStation): boolean {
+  for (const other of getAgents() as Array<{ cx: number; cy: number }>) {
+    if (other === (agent as unknown)) continue;
+    const dx = Math.abs(other.cx - agent.cx);
+    const dy = Math.abs(other.cy - agent.cy);
+    if (Math.max(dx, dy) <= 1) return true;
+  }
+  return false;
+}
+
 // Decide qué hacer cuando el agente termina de aterrizar en una celda:
+// - Otro agente adyacente → pausa social (waiting=5s, da ventana al trigger).
 // - Sin zona o zona no funcional → confused
 // - Zona sin requisitos → working en sitio
 // - Zona con requisitos → caminar al prop más cercano del primer kind requerido
 //   (si ya está adyacente, working directo)
 export function handleAgentLanded(agent: AgentForStation): void {
+  if (hasAdjacentAgent(agent)) {
+    agent.waiting = SOCIAL_PAUSE_AFTER_LAND_S;
+    return;
+  }
   const zoneInfo = getZoneAt(agent.cx, agent.cy);
   if (!zoneInfo) {
     showAgentThought(agent, 'confused', CONFUSED_THOUGHT_DURATION_S);

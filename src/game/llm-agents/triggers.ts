@@ -2,7 +2,7 @@
  * TriggerSystem — lógica determinística de cuándo un agente debe hablar.
  *
  * Eventos:
- * - social_encounter: dos agentes adyacentes (chebyshev <= 1) hace > 3s.
+ * - social_encounter: dos agentes adyacentes (chebyshev <= 1) hace > 2s.
  *   Cooldown por par (ordenado lexicográfico): 60s post-encuentro.
  * - crisis: necesidad < 20 dispara monólogo. Cooldown por (agentId, needKind): 60s.
  *
@@ -12,7 +12,7 @@
 
 import { areAgentsAdjacent } from './adjacency';
 
-const SOCIAL_ADJ_MS = 3000;        // 3s adyacentes para emit social.
+const SOCIAL_ADJ_MS = 2000;        // 2s adyacentes para emit social.
 const SOCIAL_PAIR_COOLDOWN_MS = 60000;
 const CRISIS_NEED_THRESHOLD = 20;
 const CRISIS_COOLDOWN_MS = 60000;

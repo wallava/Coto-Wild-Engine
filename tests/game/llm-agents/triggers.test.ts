@@ -11,29 +11,39 @@ function mkOpts(state: { now: number; agents: Map<string, {cx:number,cy:number}>
 }
 
 describe('TriggerSystem.social', () => {
-  it('no emite si adyacentes < 3s', () => {
+  it('no emite si adyacentes < 2s', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     expect(ts.tick()).toEqual([]);
-    state.now = 2000;
+    state.now = 1500;
     expect(ts.tick()).toEqual([]);
   });
 
-  it('emite social_encounter cuando adyacentes >3s', () => {
+  it('emite social_encounter cuando adyacentes >2s', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     ts.tick();
-    state.now = 4000;
+    state.now = 2500;
     const events = ts.tick();
     expect(events.length).toBe(1);
     expect(events[0]?.type).toBe('social_encounter');
+  });
+
+  it('boundary SOCIAL_ADJ_MS=2000: 1999ms no emite, 2001ms sí', () => {
+    const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
+    const ts = new TriggerSystem(mkOpts(state));
+    ts.tick();   // firstAdjT = 0
+    state.now = 1999;
+    expect(ts.tick()).toEqual([]);
+    state.now = 2001;
+    expect(ts.tick().length).toBe(1);
   });
 
   it('cooldown 60s pareja: no emite segundo encuentro hasta pasar', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     ts.tick();
-    state.now = 4000;
+    state.now = 2500;
     ts.tick();
     state.now = 30000;
     expect(ts.tick()).toEqual([]);   // todavía en cooldown
@@ -51,11 +61,11 @@ describe('TriggerSystem.social', () => {
     state.now = 2000;
     state.agents.set('b', {cx:1,cy:0});   // re-adyacentes
     ts.tick();
-    state.now = 3500;
-    // Solo pasaron 1.5s desde la nueva adyacencia. NO emite.
+    state.now = 3000;
+    // Solo pasaron 1s desde la nueva adyacencia. NO emite.
     expect(ts.tick()).toEqual([]);
-    state.now = 5500;
-    // Ahora 3.5s desde re-adyacentes. Emite.
+    state.now = 4500;
+    // Ahora 2.5s desde re-adyacentes. Emite.
     expect(ts.tick().length).toBe(1);
   });
 
@@ -63,7 +73,7 @@ describe('TriggerSystem.social', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:1}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     ts.tick();
-    state.now = 4000;
+    state.now = 2500;
     expect(ts.tick().length).toBe(1);
   });
 
@@ -71,7 +81,7 @@ describe('TriggerSystem.social', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:3,cy:3}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     ts.tick();
-    state.now = 4000;
+    state.now = 2500;
     expect(ts.tick()).toEqual([]);
   });
 
@@ -92,16 +102,16 @@ describe('TriggerSystem.social', () => {
     const state = { now: 0, agents: new Map([['a', {cx:0,cy:0}], ['b', {cx:1,cy:0}]]) };
     const ts = new TriggerSystem(mkOpts(state));
     ts.tick();
-    state.now = 4001;
+    state.now = 2500;
     expect(ts.tick().length).toBe(1);
 
-    state.now = 5001;
+    state.now = 3500;
     ts.setPairCooldown('a', 'b', 10000);
-    state.now = 6000;
+    state.now = 4500;
     expect(ts.tick()).toEqual([]);
-    state.now = 63000;
+    state.now = 61500;
     expect(ts.tick()).toEqual([]);
-    state.now = 64002;
+    state.now = 62502;
     expect(ts.tick().length).toBe(1);
   });
 

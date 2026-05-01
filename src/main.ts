@@ -61,6 +61,13 @@ if (llmClient) {
       const a = agents.find(x => x.id === agentId);
       return a ? a.px : null;
     },
+    getAgentNeed: (agentId: string, kind: string) => {
+      const agents = ((window as any)._cweAgents ?? []) as Array<{ id: string; needs?: Record<string, number> }>;
+      const a = agents.find(x => x.id === agentId);
+      if (!a || !a.needs) return null;
+      const v = a.needs[kind];
+      return typeof v === 'number' ? v : null;
+    },
     personalityFor: (agentId: string) => {
       // Asignación manual via window.__assignPersonality, o auto-asignar las 3 primeras.
       const manual = _personalityAssignments.get(agentId);

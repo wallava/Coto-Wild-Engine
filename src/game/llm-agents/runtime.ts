@@ -116,7 +116,20 @@ export function setupAgentRuntime(opts: AgentRuntimeOpts): AgentRuntimeHandle {
         if (!personality) continue;
         const brain = getOrCreateBrain(speaker, personality);
         if (!brain) continue;
-        void brain.speak('', { situationLines: ['Tu necesidad ' + event.need + ' está en ' + event.level] });
+        const speakerAgent = opts.agentRef(speaker) as any;
+        if (!speakerAgent) continue;
+        // Lock paridad con conversation orchestrator: durante monólogo
+        // crisis el agente queda quieto (talking=true), path/target
+        // limpios. Al cerrar, waiting=1.5s evita walk inmediato.
+        if (speakerAgent.talking || speakerAgent.activeConversationId) continue;
+        speakerAgent.talking = true;
+        speakerAgent.path = [];
+        speakerAgent.target = null;
+        void brain.speak('', { situationLines: ['Tu necesidad ' + event.need + ' está en ' + event.level] })
+          .finally(() => {
+            speakerAgent.talking = false;
+            speakerAgent.waiting = 1.5;
+          });
         continue;
       }
     }
