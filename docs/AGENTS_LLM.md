@@ -6,7 +6,7 @@
 
 Este documento describe **cómo funcionan los agentes de AGENTS.INC con LLM real** dentro del MVP. Es el feature distintivo del juego: lo que hace que el comportamiento de los agentes se sienta vivo y emergente en lugar de scripted.
 
-No es un componente de horizonte 3 (CWE producto). Es parte del MVP. Sin esto, AGENTS.INC es The Sims pero peor; con esto, es lo que querés mostrarle al mundo.
+No es un componente de horizonte 3 (CWE producto). Es parte del MVP de CWE. Sin LLM real, los agentes son scripts rígidos; con LLM real, el sistema cobra vida — esa diferencia es lo que valida el motor para construir AGENTS.INC y otros juegos narrativos.
 
 Ver `MVP_SCOPE.md` para qué entra y qué no.
 
