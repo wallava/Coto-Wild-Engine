@@ -377,6 +377,65 @@ Todas requieren razonamiento y validación visual. Ninguna es nocturno-viable.
 
 ---
 
+## Lección 13: Workflow paranoico → template/skill replicable (PENDIENTE post-CWE)
+
+> **Contexto**: charla en sesión chat web del 2026-05-01. Pablo vio video de un creator que armó workflow automatizado (MCP GitHub + browser + image gen + ad publishing) y lo guardó como skill reutilizable. Pablo se preguntó si su workflow paranoico de 6 filtros podría capturarse igual para usar en futuros proyectos.
+
+### Lo que vale la pena capturar
+
+El workflow paranoico de Pablo + Claude tiene partes **automatizables** y partes **estratégicas**. La diferencia importa.
+
+**Automatizable** (puede ir a template/skill):
+- Setup inicial de proyecto (estructura, package.json, tsconfig, Vite, Vitest, Zod).
+- Docs base (CLAUDE.md, WORKFLOW_SESIONES.md genéricos).
+- Plantillas de prompts maestros para fases iniciales.
+- Configuración de Codex plugin (`.codex/config.toml`).
+- Validaciones técnicas (tsc + tests + smoke).
+- Sincronización repo ↔ Project knowledge base.
+- Sistema de auto-declaración con headers `<!-- ARCHIVO: X.md -->`.
+
+**NO automatizable** (siempre humano):
+- Decisión de scope del MVP.
+- Validación visual de funcionalidad.
+- Aprobación de cambios arquitectónicos.
+- Procesamiento de auditorías de ChatGPT.
+- Decisión de cuándo cerrar fase.
+- Commit explícito.
+
+### Plan en 2 etapas (NO ejecutar antes de cerrar CWE MVP)
+
+**Etapa 1 — Plantilla de repo** (`coto-wild-template`):
+- Repo template en GitHub.
+- Estructura base + docs vacíos con frame paranoico.
+- Prompts maestros para arrancar nuevo proyecto.
+- Cuando Pablo quiere proyecto nuevo: `git clone` + customizar placeholders.
+- Inmediatamente reutilizable sin depender de skills formales de Anthropic.
+
+**Etapa 2 — Skill formal de Anthropic** (mucho después):
+- Solo después de usar el template en 2-3 proyectos reales.
+- Solo después de saber qué partes son **realmente repetibles** vs **siempre customizadas**.
+- Las skills funcionan mejor con flujos predecibles. El workflow paranoico de Pablo tiene gates humanos críticos que no se automatizan.
+
+### Por qué NO hacerlo ahora
+
+1. **CWE no está terminado**: distrae del foco actual.
+2. **Los datos no están**: hace falta usar el workflow en 2-3 proyectos para saber qué generalizar.
+3. **El video que inspiró la idea es demo idealizado**: workflows automatizados end-to-end se rompen con datos reales. El sistema de Pablo es más sofisticado porque tiene gates humanos en los puntos críticos. No perder eso por velocidad.
+
+### Tag
+
+`[PENDING-WORKFLOW-TEMPLATE]`: cuando CWE MVP esté cerrado y estable, evaluar crear template de repo replicable basado en el workflow paranoico actual. Skill formal de Anthropic queda diferida hasta tener evidencia de patrones repetibles en 2-3 proyectos posteriores.
+
+### Recordatorio para la IA
+
+Si Pablo trae este tema en futuras sesiones, recordarle:
+1. Lo más valioso del workflow son los gates humanos, no la velocidad de automatización.
+2. NO empezar el template hasta que CWE MVP esté cerrado.
+3. Etapa 1 (template) viene antes que Etapa 2 (skill).
+4. Si Pablo está tentado a empezar antes de tiempo: parar, recordarle por qué se decidió diferir.
+
+---
+
 ## Para futuras instancias
 
 Si sos Claude leyendo esto en sesión nueva:
