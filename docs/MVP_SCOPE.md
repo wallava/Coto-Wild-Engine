@@ -1,3 +1,5 @@
+<!-- ARCHIVO: MVP_SCOPE.md -->
+
 # MVP_SCOPE.md — Qué es y qué no es el MVP
 
 ## El frame
