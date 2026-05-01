@@ -107,19 +107,21 @@ La regla cardinal: **el engine no sabe nada del juego. El juego no sabe nada del
 ## Estado actual
 
 Lo que ya está construido en código modular post-migración:
-- 40+ módulos engine extraídos del monolito (~50% de migración cerrada).
+- 60+ módulos engine extraídos del monolito (~50% de migración cerrada).
 - Cutscene editor extraído como módulos puros (model, scenes, inheritance, keyframes, camera, walls).
 - Schemas Zod completos para world y cutscene + migrations + tests (Fase 3 cerrada).
+- DSL de cutscenes completo: parser, schema-AST, compiler, CLI (Fase 4 cerrada).
+- Capa LLM funcional: cliente Anthropic, mock client, queue, cost tracker, sanitización (Fase 5 cerrada).
+- Sistema de agentes con LLM real: 3 personalidades, AgentBrain, memoria persistente, encuentros multi-turn, 453 tests verdes (Fase 5.1 cerrada).
 - Validación runtime de carga con sistema de cuarentena para data corrupta.
 
 Pendiente para cerrar el MVP:
-- Resto de la migración del monolito (cutscene editor lifecycle + runtime + UI).
+- Resto de la migración del monolito (cutscene editor lifecycle + runtime + UI, mouse handlers, applyWorld + loadSlot, FX system, POV controls).
+- Tuning de encuentros autónomos (Fase 5.1.5: `[PENDING-ADJACENCY-TUNING]`, `[PENDING-AUTONOMOUS-SPEAK-INTEGRATION]`).
 - Internacionalización es/en.
-- Capa LLM básica + agentes con LLM real (3-5 personalidades).
 - AI Orchestration: tres generators internos para Pablo (Personality, Cutscene, World Iterator).
-- DSL de cutscenes (parser + compiler).
-- Contenido inicial de AGENTS.INC.
-- Tests críticos.
+- Contenido inicial de AGENTS.INC scaffolding (3 personalidades hechas; mundo de oficina y cutscenes de prueba pendientes).
+- E2E completo con Playwright.
 
 Ver `ROADMAP.md` para detalle por horizonte.
 
