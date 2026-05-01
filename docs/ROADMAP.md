@@ -10,8 +10,8 @@ Este archivo es la lista viva de lo que falta. Se actualiza con cada sesión.
 
 CWE existe en tres horizontes (ver `VISION.md`). Cada feature pertenece a uno:
 
-- **MVP (horizonte 1)**: herramienta personal de Pablo para AGENTS.INC.
-- **AGENTS.INC publicado (horizonte 2)**: el juego en una web pública.
+- **MVP (horizonte 1)**: Coto Wild Engine (CWE) terminado como herramienta funcional + scaffolding AGENTS.INC para validación.
+- **AGENTS.INC publicado (horizonte 2)**: el juego en una web pública, primer producto sobre CWE.
 - **CWE producto (horizonte 3)**: motor para que otros creadores construyan.
 
 Solo el horizonte 1 tiene plazos. Los otros dos son post-MVP.
