@@ -33,10 +33,17 @@ const COOLDOWN_NORMAL_MS = 60_000;
 const TURN_END_PADDING_MS = 500;
 const TURN_MAX_TOKENS = 60;
 const FACING_DX_THRESHOLD = 0.001;
+const POST_CONVERSATION_WAITING_S = 1.5;
 
 export type ParticipantAgent = AgentLike & {
   talking: boolean;
   activeConversationId: string | null;
+  /** Path pendiente del agente. Se limpia al iniciar conversación para
+   * evitar que retome walk al cerrar (ver fix Fase 5.1 R2). */
+  path?: unknown[];
+  target?: unknown;
+  /** Pausa en segundos antes que updateAgents retome pickRandomDestination. */
+  waiting?: number;
 };
 
 export type ConversationLogFn = (tag: string, data?: unknown) => void;
@@ -151,6 +158,15 @@ export async function startConversation(opts: StartConversationOpts): Promise<vo
     a.activeConversationId = conversationId;
     b.talking = true;
     b.activeConversationId = conversationId;
+    // Limpiar movimiento pendiente: si el agente tenía path/target asignados
+    // por pickRandomDestination, al cerrar la conversación retomaría walk
+    // inmediato. Resetear acá garantiza pausa real durante turns.
+    a.path = [];
+    a.target = null;
+    a.waiting = 0;
+    b.path = [];
+    b.target = null;
+    b.waiting = 0;
 
     // Orientación mutua (no requiere await).
     orientToPartner(a, b, opts.setFacing, opts.getAgentPositionX);
@@ -243,6 +259,9 @@ export async function startConversation(opts: StartConversationOpts): Promise<vo
       if (p.activeConversationId === conversationId) {
         p.talking = false;
         p.activeConversationId = null;
+        // Pausa breve post-talk evita re-walk inmediato (R2 fix). Solo
+        // si esta conversación es dueña del lock (no pisa otra).
+        p.waiting = POST_CONVERSATION_WAITING_S;
       }
     }
 

@@ -19,16 +19,25 @@ function makeAgent({
   cx,
   cy,
   x,
+  path,
+  target,
+  waiting,
 }: {
   id: string;
   cx: number;
   cy: number;
   x: number;
+  path?: unknown[];
+  target?: unknown;
+  waiting?: number;
 }): TestAgent {
   return {
     id,
     talking: false,
     activeConversationId: null,
+    path: path ?? [],
+    target: target ?? null,
+    waiting: waiting ?? 0,
     _x: x,
     _cx: cx,
     _cy: cy,
@@ -122,6 +131,52 @@ describe('startConversation', () => {
     expect(b.talking).toBe(false);
     expect(a.activeConversationId).toBeNull();
     expect(b.activeConversationId).toBeNull();
+  });
+
+  it('R2 fix: post-lock limpia path/target/waiting; finally setea waiting=1.5', async () => {
+    const a = makeAgent({ id: 'a', cx: 0, cy: 0, x: 0, path: [[5,5],[6,6]], target: [6,6], waiting: 3 });
+    const b = makeAgent({ id: 'b', cx: 1, cy: 0, x: 1, path: [[7,7]], target: [7,7], waiting: 2 });
+    const aBrain = makeMockBrain();
+    const bBrain = makeMockBrain();
+    const brains = new Map<string, AgentBrain>([['a', aBrain], ['b', bBrain]]);
+
+    // Captura state durante speak (post-lock, pre-finally).
+    let aMidPath: unknown = 'unset';
+    let aMidWaiting: unknown = 'unset';
+    let bMidPath: unknown = 'unset';
+    vi.mocked(aBrain.speak).mockImplementationOnce(async () => {
+      aMidPath = a.path;
+      aMidWaiting = a.waiting;
+      bMidPath = b.path;
+      return { ok: true, text: 'mock turn', cost: 0.001 };
+    });
+    const opts = makeBaseOpts({ participants: [a, b], brains });
+
+    await startConversation(opts);
+
+    // Durante turn 1: path/target/waiting limpios.
+    expect(aMidPath).toEqual([]);
+    expect(aMidWaiting).toBe(0);
+    expect(bMidPath).toEqual([]);
+    // Post-finally: waiting=1.5 ambos.
+    expect(a.waiting).toBe(1.5);
+    expect(b.waiting).toBe(1.5);
+    expect(a.path).toEqual([]);
+    expect(a.target).toBeNull();
+  });
+
+  it('R2 fix: si conversación rejected por lock, NO toca path/target/waiting', async () => {
+    const a = makeAgent({ id: 'a', cx: 0, cy: 0, x: 0, path: [[5,5]], target: [5,5], waiting: 4 });
+    const b = makeAgent({ id: 'b', cx: 1, cy: 0, x: 1 });
+    a.talking = true;   // fuerza lock-rejected
+    const brains = new Map<string, AgentBrain>([['a', makeMockBrain()], ['b', makeMockBrain()]]);
+    const opts = makeBaseOpts({ participants: [a, b], brains });
+
+    await startConversation(opts);
+
+    expect(a.path).toEqual([[5,5]]);
+    expect(a.target).toEqual([5,5]);
+    expect(a.waiting).toBe(4);
   });
 
   it('happy path 4 turns alternates a, b, a, b', async () => {
