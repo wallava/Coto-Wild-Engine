@@ -1,3 +1,5 @@
+<!-- ARCHIVO: AI_ORCHESTRATION.md -->
+
 # AI_ORCHESTRATION.md — Los tres generators internos
 
 ## Frame del MVP

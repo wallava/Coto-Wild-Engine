@@ -1,3 +1,5 @@
+<!-- ARCHIVO: CUTSCENES.md -->
+
 # CUTSCENES.md — Editor y runtime de cutscenes
 
 ## Qué es

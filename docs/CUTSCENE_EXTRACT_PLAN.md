@@ -1,3 +1,5 @@
+<!-- ARCHIVO: CUTSCENE_EXTRACT_PLAN.md -->
+
 # CUTSCENE_EXTRACT_PLAN.md — Plan de extracción del editor de cutscenes
 
 ## Alcance

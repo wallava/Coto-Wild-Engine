@@ -1,3 +1,5 @@
+<!-- ARCHIVO: CLAUDE.md -->
+
 # CLAUDE.md
 
 Este archivo es lo primero que Claude lee al abrir una sesión de Claude Code en este proyecto. **Léelo antes de tocar cualquier cosa.** Después lee los documentos en `docs/` según necesites.

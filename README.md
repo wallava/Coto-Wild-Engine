@@ -1,3 +1,5 @@
+<!-- ARCHIVO: README.md -->
+
 # AGENTS.INC / Coto Wild Engine
 
 Juego web isométrico 3D, sátira sobre la economía de los agentes IA, construido sobre **Coto Wild Engine (cwe)** — un motor de juego reusable para iso 3D + construcción + cutscenes.

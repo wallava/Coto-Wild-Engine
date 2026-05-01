@@ -1,3 +1,5 @@
+<!-- ARCHIVO: PRODUCT_FUTURE.md -->
+
 # PRODUCT_FUTURE.md — CWE como producto público (horizonte 3)
 
 > **Importante**: este documento describe el horizonte 3 — CWE convertido en producto público para creadores externos. **NO es lo que estamos construyendo en MVP.** Sirve como norte conceptual de largo plazo.

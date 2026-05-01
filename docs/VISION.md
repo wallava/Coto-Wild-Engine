@@ -1,3 +1,5 @@
+<!-- ARCHIVO: VISION.md -->
+
 # VISION.md — Qué es esto
 
 ## Tres horizontes

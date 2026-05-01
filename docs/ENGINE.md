@@ -1,3 +1,5 @@
+<!-- ARCHIVO: ENGINE.md -->
+
 # ENGINE.md — Coto Wild Engine (cwe)
 
 ## Por qué existe

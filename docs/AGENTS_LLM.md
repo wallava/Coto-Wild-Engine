@@ -1,3 +1,5 @@
+<!-- ARCHIVO: AGENTS_LLM.md -->
+
 # AGENTS_LLM.md — Agentes con LLM real
 
 ## Frame

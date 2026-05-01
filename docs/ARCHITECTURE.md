@@ -1,3 +1,5 @@
+<!-- ARCHIVO: ARCHITECTURE.md -->
+
 # ARCHITECTURE.md — Estructura del código
 
 ## Frame del MVP

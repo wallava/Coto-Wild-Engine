@@ -1,3 +1,5 @@
+<!-- ARCHIVO: ROADMAP.md -->
+
 # ROADMAP.md — Pendientes y futuro
 
 Este archivo es la lista viva de lo que falta. Se actualiza con cada sesión.
