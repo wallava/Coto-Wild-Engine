@@ -12,7 +12,7 @@
 
 Solo después de que:
 
-1. MVP está completo (Pablo desarrolla AGENTS.INC con CWE).
+1. MVP está completo (CWE listo como herramienta, Pablo arranca AGENTS.INC en serio post-MVP).
 2. AGENTS.INC está publicado y tiene tracción medible.
 3. La arquitectura de CWE demostró ser sólida y reusable.
 
