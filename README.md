@@ -19,7 +19,7 @@ Comandos útiles:
 
 ```bash
 npm run dev               # dev server con HMR
-npm test                  # tests Vitest (100/100 al 2026-04-27)
+npm test                  # tests Vitest (453/453 al 2026-05-01)
 npx tsc --noEmit          # validación TypeScript
 npm run smoke-test        # smoke test con Playwright (validación E2E mínima)
 ```
@@ -62,8 +62,12 @@ El monolito original (HTML de ~12,500 líneas) está en `docs/reference/three-pr
 ## Estado actual
 
 - ✅ Migración del monolito ~50% (40+ módulos engine + 8 módulos cutscene + 4 módulos editor extraídos).
-- ✅ Schemas Zod cerrados (Fase 3) con 100 tests verdes y validación runtime con cuarentena.
-- 🟠 Próximo: cleanup docs + Fase 4 (DSL de cutscenes).
+- ✅ Schemas Zod (Fase 3) con cuarentena de data corrupta + migrations.
+- ✅ DSL de cutscenes (Fase 4) con parser + compiler + CLI.
+- ✅ Capa LLM + 3 personalidades + memoria persistente (Fase 5).
+- ✅ Encuentros con cuerpo: orchestrator multi-turn, talking state, bubbles cortas (Fase 5.1 + fix R1-R4).
+- 453/453 tests verdes al 2026-05-01.
+- 🟠 Próximo: Fase 5.1.5 (tuning encuentros autónomos) + extracción cutscene editor.
 
 Ver `docs/ROADMAP.md` para detalle.
 
