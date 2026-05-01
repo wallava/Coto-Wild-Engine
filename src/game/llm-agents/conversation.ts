@@ -34,7 +34,10 @@ const COOLDOWN_NORMAL_MS = 60_000;
 // el typewriter del bubble (cps=30) tarda en revelar texto + fade ~0.3s.
 // 500ms causaba overlap visual entre turn N y N+1.
 const TURN_END_PADDING_MS = 2000;
-const TURN_MAX_TOKENS = 60;
+// 30 tokens ≈ 15-25 palabras dura. Personalidades tienen FORMATO=
+// "MÁXIMO 8 palabras" en static block; el cap server-side es defensa
+// dura por si Haiku ignora la regla.
+const TURN_MAX_TOKENS = 30;
 const FACING_DX_THRESHOLD = 0.001;
 const POST_CONVERSATION_WAITING_S = 1.5;
 
