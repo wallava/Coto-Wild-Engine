@@ -54,7 +54,7 @@ Si en algún momento te encontrás justificando features con "esto va a hacer AG
 
 - Patrón Vitest establecido.
 - Cobertura: `cutscene/inheritance.ts`, schemas Zod, migrations, capa LLM, orchestrator de conversaciones, engine helpers.
-- Pendientes: tests para DSL compiler, engine/coords, engine/walls, E2E con Playwright.
+- Pendiente: E2E completo con Playwright. (DSL compiler + engine/coords + engine/walls ya cubiertos en los 453 tests.)
 - Estado: 453 tests verdes al 2026-04-30.
 
 ### Internacionalización es/en (pendiente)
